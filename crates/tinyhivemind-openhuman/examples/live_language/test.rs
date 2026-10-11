@@ -15,6 +15,7 @@ fn message(sequence: u64, sender: &str, episode: &str, body: &str) -> Message {
         body: body.into(),
         thread: None,
         episode_id: Some(episode.into()),
+        scheduled_job_id: None,
         only_for: vec![sender.into()],
     }
 }
