@@ -1,0 +1,77 @@
+{
+  "runtime": {
+    "autonomy": "autonomous",
+    "model": {
+      "name": "openai/gpt-oss-120b:nitro",
+      "temperature": 0.0
+    },
+    "provider": {
+      "kind": "openrouter",
+      "credential": {
+        "env": "OPENROUTER_API_KEY"
+      }
+    }
+  },
+  "permission_profiles": [
+    {
+      "id": "readonly",
+      "access": "read_only"
+    }
+  ],
+  "seats": [
+    {
+      "id": "shared",
+      "profile": "worker"
+    },
+    {
+      "id": "architect",
+      "profile": "planner"
+    },
+    {
+      "id": "reviewer",
+      "profile": "reviewer"
+    },
+    {
+      "id": "helper",
+      "profile": "worker"
+    }
+  ],
+  "hives": [
+    {
+      "id": "a",
+      "name": "Implementation",
+      "members": [
+        {
+          "seat": "shared",
+          "role": "implementer"
+        },
+        {
+          "seat": "architect",
+          "role": "planner"
+        },
+        {
+          "seat": "helper",
+          "role": "assistant"
+        }
+      ]
+    },
+    {
+      "id": "b",
+      "name": "Review",
+      "members": [
+        {
+          "seat": "shared",
+          "role": "observer",
+          "permission_profile": "readonly",
+          "context": [
+            "review"
+          ]
+        },
+        {
+          "seat": "reviewer",
+          "role": "reviewer"
+        }
+      ]
+    }
+  ]
+}

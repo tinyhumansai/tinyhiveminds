@@ -1,0 +1,98 @@
+{
+  "runtime": {
+    "autonomy": "autonomous",
+    "model": {
+      "temperature": 0.0
+    },
+    "concurrency": 4,
+    "mcp": [
+      {
+        "id": "deepswe",
+        "transport": "stdio",
+        "endpoint": "deepswe_hive",
+        "args": [
+          "--mcp-workspace"
+        ],
+        "tools": [
+          "file_read",
+          "file_write",
+          "file_edit",
+          "shell",
+          "test"
+        ]
+      }
+    ]
+  },
+  "seats": [
+    {
+      "id": "lead",
+      "profile": "lead"
+    },
+    {
+      "id": "implementer",
+      "profile": "implementer"
+    },
+    {
+      "id": "tester",
+      "profile": "tester"
+    },
+    {
+      "id": "reviewer",
+      "profile": "reviewer"
+    }
+  ],
+  "hives": [
+    {
+      "id": "deepswe",
+      "members": [
+        {
+          "seat": "lead",
+          "role": "lead"
+        },
+        {
+          "seat": "implementer",
+          "role": "implementer"
+        },
+        {
+          "seat": "tester",
+          "role": "tester"
+        },
+        {
+          "seat": "reviewer",
+          "role": "reviewer"
+        }
+      ],
+      "episode": {
+        "turn_budget": 12,
+        "round_width": 4,
+        "revealed_width": 1,
+        "blind_round": true,
+        "dominance_cap": 50,
+        "repetition_cap": 3,
+        "distance": "sequence",
+        "quorum": {
+          "threshold": 2,
+          "window": 30,
+          "require_grounded": true
+        },
+        "weights": {
+          "recency": 5,
+          "importance": 30,
+          "relevance": 20,
+          "half_life": 20
+        }
+      },
+      "routing": {
+        "minimum_confidence": 0,
+        "high_impact_minimum_confidence": 0,
+        "clarification_threshold": 1000000,
+        "high_impact_threshold": 1000000,
+        "round_width": 4,
+        "choice_option_limit": 4
+      },
+      "coordinator": {
+        "round_width": 4
+      }
+    }
+  ]
+}

@@ -111,7 +111,8 @@ pub async fn run() -> anyhow::Result<()> {
     }
     anyhow::ensure!(
         calls.load(Ordering::SeqCst) == 3,
-        "denied tool reached host factory"
+        "expected three authorized factory calls, observed {}",
+        calls.load(Ordering::SeqCst)
     );
     anyhow::ensure!(
         coordinator.list_agents()? == ["manager", "specialist"],

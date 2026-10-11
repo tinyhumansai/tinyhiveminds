@@ -21,7 +21,7 @@ offline = ["dep:wiremock"]
 
 [dependencies]
 # Supplied handles and their continuing turn API.
-openhuman-embed.workspace = true
+openhuman-embed = { workspace = true, features = ["mcp", "skills", "storage-sqlite"] }
 # Host usage and policy types remain OpenHuman's own.
 openhuman.workspace = true
 # Native tool trait and results used by permanent attachments.
@@ -33,6 +33,10 @@ anyhow.workspace = true
 # Render schemas and attributed input.
 serde_json.workspace = true
 serde.workspace = true
+# Canonical typed profile metadata in Markdown frontmatter.
+serde_yaml_ng.workspace = true
+# Native schedule validation before constructing a deployment.
+chrono.workspace = true
 thiserror.workspace = true
 # Turn timeout and progress channels.
 tokio = { workspace = true, features = ["rt", "sync", "time"] }
@@ -43,7 +47,8 @@ tinyhivemind-lang.workspace = true
 # Durable messaging and cross-hive scheduling.
 tinyhivemind-hives.workspace = true
 # The engine contract and agent memory lifecycle behind hive `Recall`/`Remember`.
-tinymemory-api.workspace = true
+# The deterministic in-process memory selector uses the contract reference engine.
+tinymemory-api = { workspace = true, features = ["conformance"] }
 tinymemory-tools.workspace = true
 # Deterministic standalone host fixtures.
 wiremock = { workspace = true, optional = true }
@@ -52,7 +57,7 @@ wiremock = { workspace = true, optional = true }
 tempfile.workspace = true
 # The routing surfaces, for a test that builds its own hive.
 
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
 wiremock.workspace = true
 # The in-memory reference engine, for offline `Recall`/`Remember` tests.
 tinymemory-api = { workspace = true, features = ["conformance"] }

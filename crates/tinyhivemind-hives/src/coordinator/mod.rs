@@ -3,6 +3,8 @@ mod conduct;
 mod messaging;
 mod observe;
 mod scheduler;
+mod settings;
+pub use settings::HiveSettings;
 #[cfg(test)]
 mod test;
 mod transaction;
@@ -339,9 +341,43 @@ impl Coordinator {
             known_agent(state, agent_id)?;
             if let Some(agent) = state.agents.get_mut(agent_id) {
                 agent.parked = false;
+                agent.parked_turn = None;
                 if let Some(note) = &note {
                     agent.resumption = Some(note.clone());
                 }
+            }
+            conduct::release(state, agent_id, &self.inner.options)
+        })
+        .await
+    }
+    /// Release only the exact completed parked turn captured by a host approval.
+    /// The identity check and release share one storage transaction.
+    /// # Errors
+    /// Unknown agent, running/unparked or mismatched turn, conductor or storage failure.
+    pub async fn release_parked(
+        &self,
+        agent_id: &str,
+        turn: &crate::ParkedTurn,
+        note: Option<String>,
+    ) -> Result<()> {
+        self.update(|state| {
+            known_agent(state, agent_id)?;
+            let agent = state
+                .agents
+                .get_mut(agent_id)
+                .ok_or_else(|| Error::UnknownAgent(agent_id.into()))?;
+            if state.running.contains_key(agent_id)
+                || !agent.parked
+                || agent.parked_turn.as_ref() != Some(turn)
+            {
+                return Err(Error::InvalidState(
+                    "approval does not match a completed parked turn".into(),
+                ));
+            }
+            agent.parked = false;
+            agent.parked_turn = None;
+            if let Some(note) = &note {
+                agent.resumption = Some(note.clone());
             }
             conduct::release(state, agent_id, &self.inner.options)
         })

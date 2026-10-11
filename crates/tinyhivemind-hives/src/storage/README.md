@@ -28,3 +28,9 @@ Storage is replaceable by the host. A newly loaded coordinator records running
 reservations as interrupted, and requires supplied handles to be reattached
 before unstarted jobs run. Durable session IDs remain bound across process
 runtimes.
+
+`StoredState::hive_settings` retains native policy and role metadata separately
+from current memberships. Every episode freezes its settings and scheduled job
+identity. Transcript rows persist scheduled authority on `Message`, while
+running reservations retain it in `TurnRequest`; legacy rows default to no
+explicit settings or scheduled origin.

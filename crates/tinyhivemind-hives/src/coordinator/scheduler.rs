@@ -178,40 +178,57 @@ impl Coordinator {
                 .filter(|hive| hive.members.contains(&agent_id))
                 .cloned()
                 .collect();
-            let (messages, episode, turn, delivery_sequence) = match work {
-                Work::Direct(index) => {
-                    let delivery = &next.deliveries[index];
-                    let message = next
-                        .messages
-                        .iter()
-                        .find(|msg| msg.sequence == delivery.sequence)
-                        .cloned()
-                        .ok_or_else(|| {
-                            Error::InvalidState("direct delivery missing message".into())
-                        })?;
-                    let sequence = delivery.sequence;
-                    next.deliveries[index].status = DeliveryStatus::Running;
-                    (vec![message], None, None, Some(sequence))
-                }
-                Work::Episode(index, turn_index) => {
-                    let turn = next.episodes[index].pending[turn_index].clone();
-                    let (messages, brief) = conduct::open(next, index, &turn, &self.inner.options)?;
-                    let record = &next.episodes[index];
-                    let context = EpisodeContext {
-                        episode_id: record.episode_id.clone(),
-                        hive_id: record.hive.hive_id.clone(),
-                        thread: turn.thread().map(|root| root.0).or(record.thread),
-                        brief,
-                    };
-                    removals.push((index, agent_id.clone()));
-                    (messages, Some(context), Some(turn), None)
-                }
-            };
-            let agent = next.agents.get_mut(&agent_id);
-            let (session_id, resumption) = agent.map_or((None, None), |agent| {
-                (agent.session_id.clone(), agent.resumption.take())
-            });
+            let (messages, episode, turn, delivery_sequence, scheduled_job_id, teammates) =
+                match work {
+                    Work::Direct(index) => {
+                        let delivery = &next.deliveries[index];
+                        let message = next
+                            .messages
+                            .iter()
+                            .find(|msg| msg.sequence == delivery.sequence)
+                            .cloned()
+                            .ok_or_else(|| {
+                                Error::InvalidState("direct delivery missing message".into())
+                            })?;
+                        let sequence = delivery.sequence;
+                        next.deliveries[index].status = DeliveryStatus::Running;
+                        let origin = message.scheduled_job_id.clone();
+                        (
+                            vec![message],
+                            None,
+                            None,
+                            Some(sequence),
+                            origin,
+                            Vec::new(),
+                        )
+                    }
+                    Work::Episode(index, turn_index) => {
+                        let turn = next.episodes[index].pending[turn_index].clone();
+                        let (messages, brief) =
+                            conduct::open(next, index, &turn, &self.inner.options)?;
+                        let record = &next.episodes[index];
+                        let context = EpisodeContext {
+                            episode_id: record.episode_id.clone(),
+                            hive_id: record.hive.hive_id.clone(),
+                            thread: turn.thread().map(|root| root.0).or(record.thread),
+                            brief,
+                        };
+                        removals.push((index, agent_id.clone()));
+                        (
+                            messages,
+                            Some(context),
+                            Some(turn),
+                            None,
+                            record.scheduled_job_id.clone(),
+                            conduct::teammates_for(record, &agent_id),
+                        )
+                    }
+                };
+            let (session_id, resumption) = take_continuation(next, &agent_id);
             let request = TurnRequest {
+                turn_id: format!("{}:{}:{agent_id}", next.writer_epoch, next.revision),
+                scheduled_job_id,
+                teammates,
                 agent_id: agent_id.clone(),
                 session_id,
                 messages,
@@ -297,7 +314,7 @@ impl Coordinator {
                 .agents
                 .get_mut(agent_id)
                 .ok_or_else(|| Error::UnknownAgent(agent_id.into()))?;
-            agent.parked = outcome.disposition == TurnDisposition::Parked;
+            record_parked(agent, &outcome, &running.request);
             if let Some(sequence) = running.delivery_sequence {
                 for delivery in &mut state.deliveries {
                     if delivery.sequence == sequence && delivery.agent_id == agent_id {
@@ -311,6 +328,7 @@ impl Coordinator {
                 if let Some(body) = &outcome.reply {
                     let sequence = super::messaging::next_sequence(state)?;
                     state.messages.push(super::Message {
+                        scheduled_job_id: running.request.scheduled_job_id.clone(),
                         message_id: format!("hivemind:event:{sequence}"),
                         sequence,
                         sender: agent_id.into(),
@@ -367,4 +385,37 @@ fn candidates(state: &crate::StoredState) -> Vec<(u64, String, Work)> {
     }
     candidates.sort_by(|left, right| (&left.0, &left.1).cmp(&(&right.0, &right.1)));
     candidates
+}
+
+/// Take the one-shot release note while preserving the continuing session.
+fn take_continuation(state: &mut StoredState, agent_id: &str) -> (Option<String>, Option<String>) {
+    state
+        .agents
+        .get_mut(agent_id)
+        .map_or((None, None), |agent| {
+            (agent.session_id.clone(), agent.resumption.take())
+        })
+}
+
+/// Retain exact parked provenance for transactional approval release.
+fn record_parked(
+    agent: &mut crate::AgentRecord,
+    outcome: &TurnOutcome,
+    request: &super::TurnRequest,
+) {
+    agent.parked = outcome.disposition == TurnDisposition::Parked;
+    agent.parked_turn = agent.parked.then(|| crate::ParkedTurn {
+        turn_id: request.turn_id.clone(),
+        session_id: outcome.session_id.clone(),
+        episode_id: request
+            .episode
+            .as_ref()
+            .map(|episode| episode.episode_id.clone()),
+        message_ids: request
+            .messages
+            .iter()
+            .map(|message| message.message_id.clone())
+            .collect(),
+        scheduled_job_id: request.scheduled_job_id.clone(),
+    });
 }

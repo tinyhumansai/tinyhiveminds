@@ -22,3 +22,14 @@ through model tool calls, and sends work to the newly configured agent.
 `test.rs` runs the whole example on a Tokio runtime whose worker stacks match
 OpenHuman's embedded loop requirements. The benign stdio MCP fixture requires
 `python3`; all other services run on loopback and require no credentials.
+
+The management agent has native write authority as well as the host management
+authorizer. Prompt preservation compares the exact host-authored system row;
+native policy-repair and permanent-tool rows are checked separately from it.
+
+The pinned native generic MCP bridge requires an acting access tier even for
+the benign evidence server. These supplied-agent fixtures therefore use full
+access with an explicit three-tool native scope (`use_skill`, `mcp_list_tools`,
+`mcp_call_tool`) and a per-server allowlist containing only that agent’s evidence
+verb. Host authorization independently refuses the denied management template.
+The separate manifest-backed basic hive retains its read-only access proof.

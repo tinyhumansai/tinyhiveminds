@@ -44,6 +44,7 @@ async fn stable_vocabulary_has_one_schema_and_rejects_impersonation() {
     );
     assert!(Kind::ListAgents.validate(&serde_json::json!([])).is_err());
     let tool = HiveTool {
+        session: None,
         actor: "a".into(),
         host: Weak::new(),
         kind: Kind::ListAgents,
@@ -88,6 +89,7 @@ async fn bound_native_calls_validate_destinations_and_manage_membership() {
         .with_management(Arc::new(Factory), Arc::new(Authorize))
         .unwrap();
     let call = |kind| HiveTool {
+        session: None,
         actor: "a".into(),
         host: Arc::downgrade(&host.inner),
         kind,
@@ -155,6 +157,7 @@ async fn bound_native_calls_validate_destinations_and_manage_membership() {
     )
     .await;
     let denied = HiveTool {
+        session: None,
         actor: "b".into(),
         host: Arc::downgrade(&host.inner),
         kind: Kind::CreateHive,
@@ -177,6 +180,7 @@ impl tinyhivemind_hives::AgentRunner for ActiveTools {
             let episode = request.episode.unwrap();
             for kind in [Kind::Post, Kind::Complete] {
                 let tool = HiveTool {
+                    session: None,
                     actor: request.agent_id.clone(),
                     host: weak.clone(),
                     kind,

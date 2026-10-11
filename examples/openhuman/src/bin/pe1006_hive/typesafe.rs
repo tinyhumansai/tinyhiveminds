@@ -1,7 +1,5 @@
 //! Live TypeSafe transport and routing request construction.
 
-use tinyhivemind_core::embed::RoutingPolicy;
-use tinyhivemind_core::runtime::responder::Probability;
 use tinyhivemind_core::typesafe::{
     Error, SystemOneRequest, SystemOneResponse, SystemOneTransport, SystemOneTransportFuture,
 };
@@ -53,17 +51,6 @@ impl SystemOneTransport for Transport {
                     message: error.to_string(),
                 })
         })
-    }
-}
-
-pub(super) fn routing_policy() -> RoutingPolicy {
-    RoutingPolicy {
-        minimum_confidence: Probability::ZERO,
-        high_impact_minimum_confidence: Probability::ZERO,
-        clarification_threshold: Probability::ONE,
-        high_impact_threshold: Probability::ONE,
-        round_width: 5,
-        choice_option_limit: 8,
     }
 }
 

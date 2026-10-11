@@ -23,3 +23,7 @@ Seats get `hive_memory_recall`, `hive_memory_note` and `hive_memory_forget` from
 `tinyhive` MCP server (served by `tinyhivemind_tools::MemoryTools` over the markdown
 adapter), and each turn opens with the recalled entries. The file lives in the
 durable workspace, so it outlives a run.
+
+`workspace_test.rs` pins non-overwriting workspace initialization and exact
+prompt/reply snapshots. The initial templates are checked-in Markdown context
+under `../../../hives/pe1006_hive/context/`.

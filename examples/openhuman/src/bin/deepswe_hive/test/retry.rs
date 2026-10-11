@@ -21,6 +21,9 @@ use crate::sandbox::{DockerSandbox, SandboxConfig};
 #[path = "retry/response.rs"]
 mod response;
 
+#[path = "retry/fail_closed.rs"]
+mod fail_closed;
+
 use response::{
     completion_response, empty_completion_response, hive_action_response, provider_error_response,
     tool_call_response,
@@ -359,101 +362,6 @@ fn accepted_action_survives_post_tool_provider_failure_without_retry() {
 }
 
 #[test]
-fn timeout_with_no_action_fails_closed_without_retry() {
-    let _guard = retry_test_guard();
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .thread_stack_size(16 * 1024 * 1024)
-        .build()
-        .expect("test runtime");
-    runtime.block_on(async {
-        let (directory, task) = fixture();
-        let sandbox = fake_sandbox(&directory, &task);
-        let mcp = fake_mcp(&directory, 1);
-        let (provider, state) = provider(1, LeadFailure::Delay(Duration::from_secs(10))).await;
-        let output_directory = TempDir::new().expect("output directory");
-        let output = output_directory.path().join("output.json");
-        let cli = Cli {
-            task: directory.path().join("unused.json"),
-            api_base: format!("{}/v1", provider.uri()),
-            model: DEFAULT_MODEL.into(),
-            output: output.clone(),
-        };
-
-        let error = tokio::spawn(async move {
-            run_with_mcp_executable_and_timeout(
-                cli,
-                task,
-                sandbox,
-                "loopback-only".into(),
-                &mcp,
-                Duration::from_secs(2),
-            )
-            .await
-        })
-        .await
-        .expect("adapter task")
-        .expect_err("an ambiguous timeout must fail closed");
-        assert!(error.to_string().contains("turn timed out"));
-        assert!(!output.exists());
-
-        let state = state.lock().expect("script state");
-        assert_eq!(state.turn_starts.get("lead"), Some(&1));
-    });
-}
-
-#[test]
-fn multiple_actions_after_provider_failure_hard_fail_without_retry() {
-    let _guard = retry_test_guard();
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .thread_stack_size(16 * 1024 * 1024)
-        .build()
-        .expect("test runtime");
-    runtime.block_on(async {
-        let (directory, task) = fixture();
-        let sandbox = fake_sandbox(&directory, &task);
-        let mcp = fake_mcp(&directory, 2);
-        let (provider, state) = provider_with_continuation(
-            0,
-            LeadFailure::Protocol,
-            Some(ContinuationFailure::Http(429)),
-        )
-        .await;
-        let output_directory = TempDir::new().expect("output directory");
-        let output = output_directory.path().join("output.json");
-        let cli = Cli {
-            task: directory.path().join("unused.json"),
-            api_base: format!("{}/v1", provider.uri()),
-            model: DEFAULT_MODEL.into(),
-            output: output.clone(),
-        };
-
-        let error = tokio::spawn(async move {
-            run_with_mcp_executable(cli, task, sandbox, "loopback-only".into(), &mcp).await
-        })
-        .await
-        .expect("adapter task")
-        .expect_err("multiple actions must fail even after provider failure");
-        assert_eq!(
-            error.to_string(),
-            "@lead emitted 2 hive actions on attempt 1; expected one"
-        );
-        assert!(!output.exists());
-
-        let state = state.lock().expect("script state");
-        assert_eq!(state.turn_starts.get("lead"), Some(&1));
-    });
-}
-
-fn retry_test_guard() -> std::sync::MutexGuard<'static, ()> {
-    static OPENHUMAN_RUNTIME: Mutex<()> = Mutex::new(());
-    OPENHUMAN_RUNTIME
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-#[test]
 fn one_missing_seat_retries_in_a_fresh_session_and_round_commits_once() {
     let _guard = retry_test_guard();
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -759,4 +667,11 @@ fn retryable_provider_exhaustion_is_bounded_without_a_commit() {
             assert_eq!(state.turn_starts.get(seat), Some(&1), "@{seat} ran once");
         }
     });
+}
+
+fn retry_test_guard() -> std::sync::MutexGuard<'static, ()> {
+    static OPENHUMAN_RUNTIME: Mutex<()> = Mutex::new(());
+    OPENHUMAN_RUNTIME
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }

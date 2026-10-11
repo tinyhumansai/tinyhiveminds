@@ -426,3 +426,13 @@ fn conduct_policy_wire_preserves_conversation_and_episode_walls() {
         policy
     );
 }
+
+#[test]
+fn conduct_policy_wire_form_and_omitted_defaults_are_stable() {
+    let value: crate::driver::ConductPolicy = serde_json::from_str("{}").unwrap();
+    assert_eq!(value, crate::driver::ConductPolicy::default());
+    assert_eq!(
+        serde_json::to_value(value).unwrap(),
+        serde_json::json!({"child_turn_wall":6,"turn_wall":60})
+    );
+}

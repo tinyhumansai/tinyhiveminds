@@ -163,6 +163,9 @@ fn the_turn_timeout_is_configurable_and_nonzero() {
             let failed = tinyhivemind_hives::AgentRunner::run(
                 runner.as_ref(),
                 tinyhivemind_hives::TurnRequest {
+                    turn_id: String::new(),
+                    scheduled_job_id: None,
+                    teammates: Vec::new(),
                     agent_id: "slow".into(),
                     session_id: None,
                     messages: vec![],

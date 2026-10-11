@@ -164,3 +164,12 @@ async fn session_registration_validates_before_publishing_and_storage_failure_is
 fn completed_turn(request: TurnRequest) -> TurnFuture {
     Box::pin(async move { Ok(done(&request)) })
 }
+
+#[test]
+fn coordinator_options_wire_form_and_omitted_defaults_are_stable() {
+    let value: crate::CoordinatorOptions = serde_json::from_str("{}").unwrap();
+    assert_eq!(
+        serde_json::to_value(value).unwrap(),
+        serde_json::json!({"round_width":1,"conduct_policy":{"child_turn_wall":6,"turn_wall":60},"broadcast_budget":null,"retention":{"settled_episodes":null,"delivered":null,"interrupted":null,"pending_per_agent":null}})
+    );
+}

@@ -5,6 +5,9 @@ use super::*;
 #[test]
 fn renders_attribution_and_explicit_episode_without_reseeding() {
     let request = TurnRequest {
+        turn_id: String::new(),
+        scheduled_job_id: None,
+        teammates: Vec::new(),
         agent_id: "a".into(),
         session_id: Some("history".into()),
         messages: vec![],
@@ -25,6 +28,9 @@ fn renders_attribution_and_explicit_episode_without_reseeding() {
 #[test]
 fn renders_a_release_note_ahead_of_the_attributed_context() {
     let request = TurnRequest {
+        turn_id: String::new(),
+        scheduled_job_id: None,
+        teammates: Vec::new(),
         agent_id: "a".into(),
         session_id: None,
         messages: vec![],

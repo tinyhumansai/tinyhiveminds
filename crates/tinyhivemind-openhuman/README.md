@@ -96,5 +96,8 @@ Runnable host construction and topology proofs are in
 See the [OpenCompany migration guide](../../docs/opencompany-migration.md) for
 construction, single-runtime dependency unification, and recovery.
 
+The [configuration module](src/config/README.md) parses reusable manifests and
+Markdown profiles before runtime construction.
+
 For a model-backed package registration check, see the
 [live language example](examples/README.md).

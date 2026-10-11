@@ -184,7 +184,7 @@ impl Division {
 /// default that made a caller opt into the thing that wins would be the wrong
 /// way round. See `docs/experiments/2026-09-09-variety-and-roles.md`.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
+#[serde(default, deny_unknown_fields)]
 pub struct DivisionPolicy {
     /// Assignments one round may authorize concurrently.
     ///

@@ -131,6 +131,9 @@ fn replacement_waits_for_the_running_turn_and_a_failed_build_leaves_no_handle() 
             let failed = tinyhivemind_hives::AgentRunner::run(
                 runner(&host).as_ref(),
                 tinyhivemind_hives::TurnRequest {
+                    turn_id: String::new(),
+                    scheduled_job_id: None,
+                    teammates: Vec::new(),
                     agent_id: "swap".into(),
                     session_id: None,
                     messages: vec![],

@@ -8,3 +8,6 @@
 | `storage/` | Serializable snapshots and transactional storage implementations |
 
 OpenHuman types belong in the adapter crate. Core algebra remains pure.
+
+The coordinator freezes per-hive `HiveSettings` and scheduled job provenance at
+acceptance; its settings module owns the typed configuration boundary.

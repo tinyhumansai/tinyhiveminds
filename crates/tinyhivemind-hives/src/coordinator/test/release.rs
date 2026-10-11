@@ -2,6 +2,102 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
 
+#[tokio::test]
+async fn old_approval_cannot_release_a_new_park_of_the_same_direct_delivery() {
+    let c = setup().await;
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let captured = seen.clone();
+    add(&c, "a", move |request| {
+        let captured = captured.clone();
+        Box::pin(async move {
+            captured.lock().unwrap().push(request.clone());
+            let mut outcome = done(&request);
+            outcome.disposition = TurnDisposition::Parked;
+            Ok(outcome)
+        })
+    })
+    .await;
+    c.send_as_host(message("same-input", Destination::Agent("a".into())))
+        .await
+        .unwrap();
+    assert_eq!(c.run_until_idle().await.unwrap().parked, 1);
+    let first = seen.lock().unwrap()[0].clone();
+    let old = crate::ParkedTurn {
+        turn_id: first.turn_id.clone(),
+        session_id: "session:a".into(),
+        episode_id: None,
+        message_ids: first
+            .messages
+            .iter()
+            .map(|message| message.message_id.clone())
+            .collect(),
+        scheduled_job_id: None,
+    };
+    // Manual host release leaves an old adapter approval outside coordinator storage.
+    c.release("a").await.unwrap();
+    assert_eq!(c.run_until_idle().await.unwrap().parked, 1);
+    let second = seen.lock().unwrap()[1].clone();
+    assert_eq!(first.messages, second.messages);
+    assert_ne!(first.turn_id, second.turn_id);
+    assert!(
+        c.release_parked("a", &old, Some("stale approval".into()))
+            .await
+            .is_err()
+    );
+    assert_eq!(c.run_until_idle().await.unwrap().completed, 0);
+    let current = crate::ParkedTurn {
+        turn_id: second.turn_id,
+        ..old
+    };
+    c.release_parked("a", &current, Some("current approval".into()))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn correlated_release_refuses_stale_identity_and_preserves_the_parked_turn() {
+    let c = setup().await;
+    let seen = parks_once(&c).await;
+    c.send_as_host(message("task", Destination::Agent("a".into())))
+        .await
+        .unwrap();
+    c.run_until_idle().await.unwrap();
+    let request = seen.lock().unwrap()[0].clone();
+    let mut identity = crate::ParkedTurn {
+        turn_id: request.turn_id.clone(),
+        session_id: "session:a".into(),
+        episode_id: None,
+        message_ids: request
+            .messages
+            .iter()
+            .map(|message| message.message_id.clone())
+            .collect(),
+        scheduled_job_id: None,
+    };
+    identity.message_ids = vec!["stale".into()];
+    assert!(
+        c.release_parked("a", &identity, Some("stale note".into()))
+            .await
+            .is_err()
+    );
+    assert_eq!(c.run_until_idle().await.unwrap().completed, 0);
+    identity.message_ids = request
+        .messages
+        .iter()
+        .map(|message| message.message_id.clone())
+        .collect();
+    c.release_parked("a", &identity, Some("matching note".into()))
+        .await
+        .unwrap();
+    assert_eq!(c.run_until_idle().await.unwrap().completed, 1);
+    assert_eq!(
+        seen.lock().unwrap()[1].resumption.as_deref(),
+        Some("matching note")
+    );
+    assert!(c.release_parked("a", &identity, None).await.is_err());
+    assert!(c.release_parked("missing", &identity, None).await.is_err());
+}
+
 async fn parks_once(c: &Coordinator) -> Arc<std::sync::Mutex<Vec<TurnRequest>>> {
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
     let recorded = seen.clone();
@@ -85,6 +181,9 @@ async fn release_without_a_note_resumes_as_before_and_notes_survive_restart() {
 #[test]
 fn turn_requests_without_a_note_keep_their_wire_form() {
     let request = TurnRequest {
+        turn_id: String::new(),
+        scheduled_job_id: None,
+        teammates: Vec::new(),
         agent_id: "a".into(),
         session_id: None,
         messages: Vec::new(),

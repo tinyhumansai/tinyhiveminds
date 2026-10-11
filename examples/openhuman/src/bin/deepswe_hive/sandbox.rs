@@ -237,10 +237,6 @@ exit "${statuses[0]}"
         require_success(output, "capture final patch")?;
         Ok(String::from_utf8(patch)?)
     }
-    pub(super) fn repo_path(&self) -> &Path {
-        &self.config.repo_path
-    }
-
     pub(super) fn mcp_args(&self) -> Vec<String> {
         vec![
             "--mcp-workspace".into(),

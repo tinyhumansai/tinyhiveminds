@@ -4,7 +4,6 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use openhuman_embed::Agent;
-use tokio::time::timeout;
 
 use super::{
     DeskMessage, RESEARCH_POLICY, SEALED, TURN_TIMEOUT, Visibility, hive_tools,
@@ -12,6 +11,7 @@ use super::{
 };
 
 pub(super) struct TurnContext<'a> {
+    pub(super) workspace: &'a std::path::Path,
     pub(super) transcript: &'a [DeskMessage],
     pub(super) visibility: &'a Visibility,
     pub(super) outbox: PathBuf,
@@ -25,6 +25,7 @@ pub(super) struct TurnContext<'a> {
 
 pub(super) struct PreparedSeatTurn {
     agent: Agent,
+    workspace: PathBuf,
     id: String,
     outbox: PathBuf,
     prompt: String,
@@ -75,7 +76,7 @@ pub(super) fn prepare_seat_turn(
             .unwrap_or_default(),
         if delta.is_empty() { "(none)" } else { &delta },
         context.assignment,
-        agent.action_dir().display(),
+        context.workspace.display(),
     );
     let session_id = format!(
         "tinyhivemind-pe{}-run-{}:{id}",
@@ -85,6 +86,7 @@ pub(super) fn prepare_seat_turn(
     let snapshot = snapshots.begin(id, agent.id(), &session_id, &prompt)?;
     Ok(PreparedSeatTurn {
         agent,
+        workspace: context.workspace.to_owned(),
         id: id.to_owned(),
         outbox: context.outbox,
         prompt,
@@ -94,16 +96,14 @@ pub(super) fn prepare_seat_turn(
 }
 
 pub(super) async fn seat_turn(prepared: PreparedSeatTurn) -> anyhow::Result<CompletedSeatTurn> {
-    let outcome = timeout(
-        TURN_TIMEOUT,
-        prepared
-            .agent
-            .turn(prepared.prompt)
-            .session(&prepared.session_id)
-            .send(),
-    )
-    .await
-    .map_err(|_| anyhow::anyhow!("@{} timed out", prepared.id))??;
+    let outcome = prepared
+        .agent
+        .turn(prepared.prompt)
+        .session(&prepared.session_id)
+        .cwd(&prepared.workspace)
+        .timeout(TURN_TIMEOUT)
+        .send()
+        .await?;
     println!(
         "[completed] @{}: {}",
         prepared.id,

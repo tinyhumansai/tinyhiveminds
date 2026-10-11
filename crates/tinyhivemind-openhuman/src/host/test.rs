@@ -2,10 +2,10 @@
 // Test assertions deliberately panic on invalid fixture construction.
 #![allow(clippy::unwrap_used)]
 use super::*;
+use crate::RUNTIME_LOCK;
 use crate::offline;
 use openhuman_embed::{AgentSpec, Runtime, Workspace};
 use tinyhivemind_hives::{CoordinatorOptions, MemoryStorage};
-static RUNTIME_LOCK: Mutex<()> = Mutex::new(());
 fn executor() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -75,6 +75,9 @@ fn supplied_clones_attach_once_and_drop_services_without_cycle() {
             );
             assert!(format!("{bound:?}").contains("agent"));
             let scope = TurnScope::from_request(&tinyhivemind_hives::TurnRequest {
+                turn_id: String::new(),
+                scheduled_job_id: None,
+                teammates: Vec::new(),
                 agent_id: "agent".into(),
                 session_id: None,
                 messages: vec![],
@@ -96,6 +99,9 @@ fn supplied_clones_attach_once_and_drop_services_without_cycle() {
                             reply: "passthrough".into(),
                             session_id: "s".into(),
                             usage: None,
+                            structured: None,
+                            finish_reason: None,
+                            answered_model: None,
                         })
                     }),
                 )
@@ -311,7 +317,7 @@ fn continuing_runner_preserves_history_and_finalizes_all_outcomes() {
             .system_prompt("HOST_CONFIGURED_PROMPT")).unwrap();
         host.register_agent(agent).await.unwrap();
         let runner = host.inner.agents.lock().unwrap()["metered"].runner.clone();
-        let mut request = TurnRequest { agent_id:"metered".into(),session_id:None,messages:vec![],memberships:vec![],episode:None,resumption:None };
+        let mut request = TurnRequest { turn_id: String::new(), scheduled_job_id: None, teammates: Vec::new(), agent_id:"metered".into(),session_id:None,messages:vec![],memberships:vec![],episode:None,resumption:None };
         let first = runner.run(request.clone()).await.unwrap();
         assert_eq!(first.reply.as_deref(),Some("HOST_REPLY"));
         request.session_id = Some(first.session_id.clone());

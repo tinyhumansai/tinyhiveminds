@@ -15,6 +15,7 @@ pub(super) struct SuppliedRunner {
     pub hooks: Arc<dyn TurnHooks>,
     pub activation: Arc<Activation>,
     pub timeout: Duration,
+    pub source: Option<openhuman_embed::HostTools>,
 }
 impl AgentRunner for SuppliedRunner {
     fn run(&self, request: TurnRequest) -> TurnFuture {
@@ -22,31 +23,61 @@ impl AgentRunner for SuppliedRunner {
         let hooks = self.hooks.clone();
         let activation = self.activation.clone();
         let timeout = self.timeout;
+        let source = self.source.clone();
         Box::pin(async move {
             activation.wait().await;
             let handle = handle.read_owned().await;
             let agent = handle
                 .clone()
                 .ok_or_else(|| map_error(&Error::NoHandle(request.agent_id.clone())))?;
-            let scope = TurnScope::from_request(&request);
+            let mut scope = TurnScope::from_request(&request);
+            let session = request
+                .session_id
+                .clone()
+                .unwrap_or_else(|| format!("hivemind:{}:{}", agent.runtime_id(), request.agent_id));
+            scope.session_id = Some(session.clone());
+            let timeout = hooks.turn_timeout(&scope).unwrap_or(timeout);
+            if timeout.is_zero() {
+                return Err(map_error(&Error::InvalidTurnTimeout));
+            }
             let usage = Arc::new(Mutex::new(None));
             let meter = usage.clone();
-            let prompt = render(&request)?;
+            let prompt = format!("{}\n{}", hooks.context(&scope), render(&request)?);
             let mut turn = agent.turn(prompt).meter(move |value| {
                 *meter.lock().unwrap_or_else(PoisonError::into_inner) = value;
             });
-            if let Some(session) = request.session_id {
-                turn = turn.session(session);
+            turn = turn.session(session.clone());
+            if let Some(source) = source {
+                turn = turn.tools(move |context| source(context));
             }
             turn = configure(turn, &hooks.prepare(&scope));
+            turn = hooks.configure(&scope, turn).timeout(timeout);
+            if let Some(job_id) = &scope.scheduled_job_id {
+                turn = turn.origin(
+                    openhuman_core::agent::turn_origin::AgentTurnOrigin::TrustedAutomation {
+                        job_id: job_id.clone(),
+                        source: openhuman_core::agent::turn_origin::TrustedAutomationSource::Cron,
+                    },
+                );
+            }
             if let Some(progress) = hooks.progress(&scope) {
                 turn = turn.on_progress(progress);
             }
             let run = Box::pin(async move {
-                Box::pin(tokio::time::timeout(timeout, turn.send()))
-                    .await
-                    .map_err(|_| Error::TimedOut)?
-                    .map_err(|e| Error::Harness(anyhow::anyhow!(e.to_string())))
+                let started = tokio::time::Instant::now();
+                turn.send().await.map_err(|error| {
+                    // The native deadline relay can cancel the session before
+                    // its deadline arm wins, returning a cancellation RPC error.
+                    // Dispatch has already awaited cleanup; use our authoritative
+                    // bound without inspecting credential-bearing native text.
+                    if matches!(error, openhuman_embed::CoreError::DeadlineExceeded { .. })
+                        || started.elapsed() >= timeout
+                    {
+                        Error::TimedOut
+                    } else {
+                        Error::Harness(anyhow::anyhow!("native turn failed"))
+                    }
+                })
             });
             let settled = hooks.wrap_turn(&scope, run).await;
             let last = usage.lock().unwrap_or_else(PoisonError::into_inner).take();
@@ -59,8 +90,17 @@ impl AgentRunner for SuppliedRunner {
                         .unwrap_or_else(|error| TurnDisposition::Failed(error.to_string())),
                 }),
                 Err(error) => {
-                    let _ = finalized;
-                    Err(map_error(&error))
+                    if !matches!(error, Error::TimedOut)
+                        && matches!(finalized, Ok(TurnDisposition::Parked))
+                    {
+                        Ok(TurnOutcome {
+                            session_id: session,
+                            reply: None,
+                            disposition: TurnDisposition::Parked,
+                        })
+                    } else {
+                        Err(map_error(&error))
+                    }
                 }
             }
         })

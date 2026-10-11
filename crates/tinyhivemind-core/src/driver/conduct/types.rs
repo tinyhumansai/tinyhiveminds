@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 /// The walls a conducted episode runs inside.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
+#[serde(default, deny_unknown_fields)]
 pub struct ConductPolicy {
     /// Turns a conversation may take before it concludes without an answer.
     pub child_turn_wall: u64,

@@ -52,6 +52,17 @@ pub trait SendAuthorizer: Send + Sync {
     /// Return a refusal, conventionally [`crate::Error::SendDenied`], whose
     /// message the model reads.
     fn authorize(&self, actor: &str, request: &SendRequest) -> Result<()>;
+    /// Authorize a send from the native session bound by the tool source.
+    /// # Errors
+    /// Returns the same refusal as `authorize` unless the host narrows sessions.
+    fn authorize_in_session(
+        &self,
+        actor: &str,
+        request: &SendRequest,
+        _session: Option<&str>,
+    ) -> Result<()> {
+        self.authorize(actor, request)
+    }
 }
 /// Outbound operation offered to the host [`SendAuthorizer`].
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -133,6 +144,12 @@ pub type TurnProgressSink =
 /// approval, or file a card per hive, episode and thread rather than per agent.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TurnScope {
+    /// Durable reservation identity from the authoritative coordinator request.
+    pub turn_id: String,
+    /// Native session authenticated by the runner before any hooks execute.
+    pub session_id: Option<String>,
+    /// Durable trusted scheduled provenance; cannot be supplied by message text.
+    pub scheduled_job_id: Option<String>,
     /// The agent taking the turn.
     pub agent_id: String,
     /// Active conductor assignment, absent for a direct message.
@@ -164,6 +181,9 @@ impl TurnScope {
             (None, None) => Destination::Agent(request.agent_id.clone()),
         };
         Self {
+            turn_id: request.turn_id.clone(),
+            scheduled_job_id: request.scheduled_job_id.clone(),
+            session_id: request.session_id.clone(),
             agent_id: request.agent_id.clone(),
             episode: request.episode.clone(),
             message_ids: request
@@ -189,8 +209,25 @@ pub struct TurnOptions {
 }
 /// Optional per-turn options, progress, usage, approval and scope hooks.
 ///
-/// Called in order: `prepare`, `progress`, `wrap_turn`, `after_turn`.
+/// Called in order: `turn_timeout`, `context`, `prepare`, `configure`,
+/// `progress`, `wrap_turn`, then `after_turn`.
 pub trait TurnHooks: Send + Sync {
+    /// Override the host's fallback native deadline for this captured turn.
+    /// `None` retains the fallback; a zero duration refuses dispatch.
+    /// This deadline is applied after `configure` so timeout classification and
+    /// native cancellation use the same bound.
+    fn turn_timeout(&self, _scope: &TurnScope) -> Option<std::time::Duration> {
+        None
+    }
+    /// Add context bound to this authoritative coordinator request.
+    fn context(&self, _scope: &TurnScope) -> String {
+        String::new()
+    }
+    /// Configure a native turn, adding permission hooks or model budgets.
+    /// Use `turn_timeout` for deadline overrides; its bound is applied afterward.
+    fn configure(&self, _scope: &TurnScope, turn: openhuman_embed::Turn) -> openhuman_embed::Turn {
+        turn
+    }
     /// Choose this turn's options before it is built.
     fn prepare(&self, _scope: &TurnScope) -> TurnOptions {
         TurnOptions::default()

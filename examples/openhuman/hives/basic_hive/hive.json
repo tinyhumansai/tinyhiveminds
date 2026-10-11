@@ -1,0 +1,31 @@
+{
+  "runtime": {
+    "autonomy": "read_only"
+  },
+  "seats": [
+    {
+      "id": "alice",
+      "profile": "alice"
+    },
+    {
+      "id": "bob",
+      "profile": "bob"
+    }
+  ],
+  "hives": [
+    {
+      "id": "release",
+      "name": "Release",
+      "members": [
+        {
+          "seat": "alice",
+          "role": "planner"
+        },
+        {
+          "seat": "bob",
+          "role": "reviewer"
+        }
+      ]
+    }
+  ]
+}

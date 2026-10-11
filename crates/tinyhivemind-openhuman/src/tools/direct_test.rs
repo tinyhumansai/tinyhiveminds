@@ -37,6 +37,7 @@ async fn read_tool_observes_direct_replies_as_its_bound_caller() {
     let activation = Arc::new(Activation::default());
     activation.activate();
     let tool = |actor: &str, kind| HiveTool {
+        session: None,
         actor: actor.into(),
         host: Arc::downgrade(&host.inner),
         kind,

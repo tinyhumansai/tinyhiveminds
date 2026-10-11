@@ -8,17 +8,28 @@ use std::sync::Weak;
 use tinyhivemind_hives::{Destination, EpisodeAction, HiveInfo, SendMessage};
 use tinytools::{PermissionLevel, Tool, ToolResult};
 use types::Kind;
+#[cfg(test)]
 pub(crate) fn belt(
     actor: &str,
     host: &Weak<Inner>,
     activation: &std::sync::Arc<Activation>,
     managed: bool,
 ) -> Vec<Box<dyn Tool>> {
+    belt_in_session(actor, host, activation, managed, None)
+}
+pub(crate) fn belt_in_session(
+    actor: &str,
+    host: &Weak<Inner>,
+    activation: &std::sync::Arc<Activation>,
+    managed: bool,
+    session: Option<&str>,
+) -> Vec<Box<dyn Tool>> {
     Kind::all(managed)
         .into_iter()
         .map(|kind| {
             Box::new(HiveTool {
                 actor: actor.into(),
+                session: session.map(str::to_owned),
                 host: host.clone(),
                 kind,
                 activation: activation.clone(),
@@ -28,6 +39,7 @@ pub(crate) fn belt(
 }
 struct HiveTool {
     actor: String,
+    session: Option<String>,
     host: Weak<Inner>,
     kind: Kind,
     activation: std::sync::Arc<Activation>,
@@ -45,8 +57,22 @@ impl Tool for HiveTool {
     }
     fn permission_level(&self) -> PermissionLevel {
         match self.kind {
-            Kind::ListHives | Kind::ListAgents | Kind::Read => PermissionLevel::ReadOnly,
-            _ => PermissionLevel::Write,
+            Kind::CreateHive | Kind::CreateAgent | Kind::JoinHive | Kind::LeaveHive => {
+                PermissionLevel::Write
+            }
+            // Protocol state is internal to the shared conversation. Actor,
+            // episode and send policy checks still authorize each operation.
+            _ => PermissionLevel::ReadOnly,
+        }
+    }
+    fn policy(&self) -> tinytools::ToolPolicy {
+        if self.permission_level() == PermissionLevel::ReadOnly {
+            tinytools::ToolPolicy::classified().with_side_effects(tinytools::ToolSideEffects {
+                read_only: true,
+                ..Default::default()
+            })
+        } else {
+            tinytools::ToolPolicy::default()
         }
     }
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
@@ -74,7 +100,7 @@ impl HiveTool {
         let actor = &self.actor;
         if let (Some(policy), Some(request)) = (&host.inner.send_policy, outbound(self.kind, &args))
         {
-            policy.authorize(actor, &request)?;
+            policy.authorize_in_session(actor, &request, self.session.as_deref())?;
         }
         match self.kind {
             Kind::ListHives => Ok(serde_json::to_value(

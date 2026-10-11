@@ -12,11 +12,13 @@ default-run = "tinyhivemind-openhuman-example"
 
 [dependencies]
 anyhow = "1"
+# The multi-hive host supplies one classified native filesystem proof tool.
+async-trait = "0.1"
+tinytools = { git = "https://github.com/tinyhumansai/tinytools", rev = "8a87a26293341c51afa11bccfdbe920def7ca9d6" }
 futures = "0.3"
 # The live hive uses OpenHuman's native runtime, agents, sessions, and TinyCortex module.
 openhuman-embed = { path = "../../vendor/openhuman/crates/openhuman-embed", default-features = false, features = ["mcp", "modules", "skills"] }
-# The DeepSWE adapter registers its per-seat definitions with OpenHuman's
-# runtime registry so the current hosted harness can resolve them at turn time.
+# Core configuration and sandbox types used by the standalone host examples.
 openhuman = { path = "../../vendor/openhuman/crates/openhuman-core", default-features = false }
 # Public research sources are mirrored into the isolated run workspace before turns start.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
@@ -64,7 +66,13 @@ tinymemory-api = { path = "../../vendor/openhuman/vendor/tinymemory/crates/tinym
 tinymemory-tools = { path = "../../vendor/openhuman/vendor/tinymemory/crates/tinymemory-tools" }
 tinymemory-integrations = { path = "../../vendor/openhuman/vendor/tinymemory/crates/tinymemory-integrations" }
 
+# Storage contracts must resolve to the harness copy across git and path users.
+[patch."https://github.com/tinyhumansai/tinystoragedrivers"]
+tinystoragedrivers-core = { path = "../../vendor/openhuman/vendor/tinyagents/vendor/tinystoragedrivers/crates/tinystoragedrivers-core" }
+tinystoragedrivers-sqlite = { path = "../../vendor/openhuman/vendor/tinyagents/vendor/tinystoragedrivers/crates/tinystoragedrivers-sqlite" }
+
 [patch."https://github.com/tinyhumansai/tinyinference"]
+tinyinference-decisions = { path = "../../vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-decisions" }
 tinyinference-core = { path = "../../vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-core" }
 tinyinference-embeddings = { path = "../../vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-embeddings" }
 tinyinference-llm = { path = "../../vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-llm" }

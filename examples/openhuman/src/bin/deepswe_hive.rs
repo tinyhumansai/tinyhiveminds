@@ -2,25 +2,19 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::join_all;
-use openhuman_core::agent::registry::types::{
-    AgentRegistryEntry, AgentRegistrySource, AgentSubagentPolicy,
-};
-use openhuman_embed::{
-    Access, Agent, AgentDefinitionSpec, AgentSpec, CoreError, McpServer, Provider, Runtime,
-    RuntimeConfig, ToolScopeSpec, Workspace,
-};
+use openhuman_embed::{Agent, CoreError, Provider, RuntimeConfig};
 use serde::{Deserialize, Serialize};
 use tinyhivemind_core::driver::{
     AgentBinding, BoundHive, BroadcastRouting, CommittedUtterance, CompletionDriver, HiveGraph,
 };
 use tinyhivemind_core::hive::{CompletionEpisodeState, CompletionStep, completion_status};
 use tinyhivemind_core::runtime::desk::{Desk, ResponderMode};
-use tinyhivemind_core::runtime::responder::Probability;
 use tinyhivemind_openhuman::RegisteredAgent;
+use tinyhivemind_openhuman::deploy::BuildOptions;
+use tinyhivemind_openhuman_example::{deploy, manifest};
 use wiremock::matchers::any;
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -42,7 +36,6 @@ use task::Task;
 const DEFAULT_MODEL: &str = "openai/gpt-oss-120b:nitro";
 const MAX_TURNS: u32 = 24;
 const MAX_SEAT_ATTEMPTS: u32 = 3;
-const ROUND_WIDTH: usize = 4;
 const TURN_TIMEOUT: Duration = Duration::from_secs(600);
 const SEATS: [&str; 4] = ["lead", "implementer", "tester", "reviewer"];
 
@@ -170,20 +163,39 @@ async fn run_prepared_with_mcp_executable(
         })))
         .mount(&backend)
         .await;
-    let runtime = Arc::new(
-        Runtime::builder()
-            .config(offline_config())
-            .workspace(Workspace::dir(artifacts.runtime))
-            .backend_url(backend.uri())
-            .provider(Provider::openai_compatible(&cli.api_base, api_key).model(&cli.model))
-            .access(Access::full())
-            .build()
-            .await?,
-    );
+    let mut config = manifest("deepswe_hive")?;
+    config.runtime.workspace = Some(artifacts.runtime.display().to_string());
+    config.runtime.mcp[0].endpoint = mcp_executable.display().to_string();
+    config.runtime.mcp[0].args = sandbox.mcp_args();
+    for profile in &mut config.profiles {
+        let mcp = &mut profile.mcp[0];
+        mcp.endpoint = mcp_executable.display().to_string();
+        mcp.args = vec![
+            "--mcp-hive".into(),
+            "--agent".into(),
+            profile.id.clone(),
+            "--outbox".into(),
+            outbox
+                .join(format!("{}.jsonl", profile.id))
+                .display()
+                .to_string(),
+        ];
+    }
+    let routing_policy = config.hives[0].routing.clone();
+    let deployment = deploy(
+        config,
+        BuildOptions {
+            config: Some(offline_config()),
+            backend_url: Some(backend.uri()),
+            provider: Some(Provider::openai_compatible(&cli.api_base, api_key).model(&cli.model)),
+            ..Default::default()
+        },
+    )
+    .await?;
     let bindings = SEATS
         .iter()
-        .map(|id| instantiate(&runtime, &sandbox, &outbox, mcp_executable, id))
-        .collect::<anyhow::Result<Vec<_>>>()?;
+        .map(|id| AgentBinding::new(*id, RegisteredAgent(deployment.seats()[*id].clone())))
+        .collect();
     let hive = BoundHive::new(
         HiveGraph::new(
             Desk {
@@ -197,7 +209,14 @@ async fn run_prepared_with_mcp_executable(
         ),
         bindings,
     )?;
-    let driver = CompletionDriver::new(&hive, ROUND_WIDTH)?;
+    let round_width = usize::try_from(
+        deployment
+            .policy("deepswe")
+            .ok_or_else(|| anyhow::anyhow!("missing declared hive policy"))?
+            .episode
+            .round_width,
+    )?;
+    let driver = CompletionDriver::new(&hive, round_width)?;
     let episode = CompletionEpisodeState::opened(
         tinyhivemind_core::runtime::Conversation {
             desk_id: hive.desk().id.clone(),
@@ -264,14 +283,6 @@ async fn run_prepared_with_mcp_executable(
             });
         }
         turns = turns.saturating_add(u32::try_from(pending.agents().len()).unwrap_or(u32::MAX));
-        let routing_policy = tinyhivemind_core::embed::RoutingPolicy {
-            minimum_confidence: Probability::ZERO,
-            high_impact_minimum_confidence: Probability::ZERO,
-            clarification_threshold: Probability::ONE,
-            high_impact_threshold: Probability::ONE,
-            round_width: ROUND_WIDTH,
-            choice_option_limit: 4,
-        };
         let routing = committed.iter().any(|event| {
             matches!(
                 event.utterance,
@@ -358,7 +369,14 @@ async fn run_seat(
             )
         });
         let prompt = seat_prompt(&task, &id, &delta, retry_instruction.as_deref());
-        let send = tokio::time::timeout(turn_timeout, agent.turn(prompt).send()).await;
+        let started = tokio::time::Instant::now();
+        let outcome = agent
+            .turn(prompt)
+            .cwd(&task.repo_path)
+            .timeout(turn_timeout)
+            .send()
+            .await;
+        let send = deadline_result(outcome, started.elapsed(), turn_timeout);
         let utterances = mcp::drain(&outbox)?;
         if utterances.len() > 1 {
             anyhow::bail!(
@@ -408,6 +426,19 @@ async fn run_seat(
     unreachable!("the bounded attempt loop either returns or reports exhaustion")
 }
 
+fn deadline_result<T>(
+    result: Result<T, CoreError>,
+    elapsed: Duration,
+    timeout: Duration,
+) -> Result<Result<T, CoreError>, CoreError> {
+    match result {
+        Err(error) if matches!(error, CoreError::DeadlineExceeded { .. }) || elapsed >= timeout => {
+            Err(error)
+        }
+        result => Ok(result),
+    }
+}
+
 fn accepted_action_reply(
     id: &str,
     utterance: &tinyhivemind_core::runtime::speech::Utterance,
@@ -445,7 +476,13 @@ fn retryable_provider_error(error: &CoreError) -> bool {
             .and_then(serde_json::Value::as_bool)
             .unwrap_or_else(|| retryable_provider_message(message)),
         CoreError::Rpc { message, .. } => retryable_provider_message(message),
-        CoreError::Unavailable { .. }
+        CoreError::Cancelled { .. }
+        | CoreError::DeadlineExceeded { .. }
+        | CoreError::StructuredOutput { .. }
+        | CoreError::BudgetExceeded { .. }
+        | CoreError::TurnCancelled { .. }
+        | CoreError::AgentRemoved { .. }
+        | CoreError::Unavailable { .. }
         | CoreError::Encode { .. }
         | CoreError::Decode { .. }
         | CoreError::InsecureRoute { .. }
@@ -486,72 +523,6 @@ fn seat_prompt(task: &Task, id: &str, delta: &str, retry_instruction: Option<&st
         prompt.push_str(instruction);
     }
     prompt
-}
-
-fn instantiate(
-    runtime: &Runtime,
-    sandbox: &DockerSandbox,
-    outbox_dir: &Path,
-    executable: &Path,
-    id: &str,
-) -> anyhow::Result<AgentBinding<RegisteredAgent>> {
-    let workspace = McpServer::stdio("deepswe", executable.to_string_lossy(), sandbox.mcp_args())
-        .allow_tools(["file_read", "file_write", "file_edit", "shell", "test"])
-        .description("Docker-confined local checkout tools");
-    let hive = McpServer::stdio(
-        "tinyhive",
-        executable.to_string_lossy(),
-        [
-            "--mcp-hive".to_string(),
-            "--agent".to_string(),
-            id.to_string(),
-            "--outbox".to_string(),
-            outbox_dir.join(format!("{id}.jsonl")).display().to_string(),
-        ],
-    )
-    .allow_tools(["broadcast", "complete_episode"])
-    .description("Local TinyHiveMind completion tools");
-    let tools = vec!["mcp_list_tools".into(), "mcp_call_tool".into()];
-    let definition_prompt = format!(
-        "You are the {id} seat in a hermetic DeepSWE hive. Use mcp_list_tools \
-         to discover the deepswe and tinyhive servers, then use mcp_call_tool \
-         to invoke their tools. End by actually invoking mcp_call_tool exactly \
-         once with server tinyhive, tool broadcast or complete_episode, and a \
-         concrete evidence message. Do not print the call as JSON or prose. \
-         Your turn is invalid until its tool result says accepted from @{id}; \
-         after acceptance, make no more tool calls."
-    );
-    let registry_entry = AgentRegistryEntry {
-        id: format!("deepswe-{id}"),
-        name: format!("DeepSWE {id}"),
-        description: "Hermetic DeepSWE hive seat".into(),
-        source: AgentRegistrySource::Custom,
-        enabled: true,
-        model: None,
-        system_prompt: Some(definition_prompt.clone()),
-        tool_allowlist: tools.clone(),
-        tool_denylist: Vec::new(),
-        subagents: AgentSubagentPolicy::default(),
-        tags: Vec::new(),
-        metadata: serde_json::Value::Null,
-    };
-    runtime
-        .agent(
-            AgentSpec::new(format!("deepswe-{id}"))
-                .definition(
-                    AgentDefinitionSpec::new()
-                        .system_prompt(definition_prompt)
-                        .tools(ToolScopeSpec::Named(tools.clone()))
-                        .max_iterations(16)
-                        .temperature(0.0),
-                )
-                .mcp(workspace)
-                .mcp(hive)
-                .config(move |config| config.agent_registry.entries.push(registry_entry))
-                .action_dir(sandbox.repo_path()),
-        )
-        .map(|agent| AgentBinding::new(id, RegisteredAgent(agent)))
-        .map_err(Into::into)
 }
 
 fn visible_delta(visibility: &Visibility, id: &str, transcript: &[DeskMessage]) -> String {

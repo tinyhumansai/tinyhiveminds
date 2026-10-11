@@ -5,16 +5,15 @@
 //! Pass `--live` and `OPENROUTER_API_KEY` to use a real OpenRouter model.
 
 use anyhow::{Context, Result, ensure};
-use openhuman_embed::{Access, AgentSpec, Provider, Runtime, Workspace};
+use openhuman_embed::Provider;
 use serde_json::{Value, json};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
-use tinyhivemind_hives::{
-    Coordinator, CoordinatorOptions, Destination, HiveInfo, MemoryStorage, SendMessage, Storage,
-};
-use tinyhivemind_openhuman::OpenHumanHost;
+use tinyhivemind_hives::{Destination, MemoryStorage, SendMessage, Storage};
+use tinyhivemind_openhuman::deploy::BuildOptions;
+use tinyhivemind_openhuman_example::{deploy, manifest};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
@@ -120,21 +119,20 @@ async fn run(mode: Mode) -> Result<()> {
             (None, route)
         }
     };
-    let runtime = Runtime::builder()
-        .config(tinyhivemind_openhuman::offline::config())
-        .workspace(Workspace::Ephemeral)
-        .backend_url(backend.uri())
-        .provider(route)
-        .access(Access::readonly())
-        .build()
-        .await?;
-
-    // The host owns agent construction and ordinary OpenHuman conversations.
-    let instructions = "Answer ordinary host turns briefly. For an Incoming attributed Hivemind context, read the episode_id from its JSON and call the native hivemind_complete tool with that episode_id and a short result. A prose claim of completion is insufficient.";
-    let alice = runtime
-        .agent(AgentSpec::new("alice").system_prompt(format!("You are Alice. {instructions}")))?;
-    let bob = runtime
-        .agent(AgentSpec::new("bob").system_prompt(format!("You are Bob. {instructions}")))?;
+    let storage = Arc::new(MemoryStorage::new());
+    let deployment = deploy(
+        manifest("basic_hive")?,
+        BuildOptions {
+            config: Some(tinyhivemind_openhuman::offline::config()),
+            backend_url: Some(backend.uri()),
+            provider: Some(route),
+            coordinator_storage: Some(storage.clone()),
+            ..Default::default()
+        },
+    )
+    .await?;
+    let alice = deployment.seats()["alice"].clone();
+    let bob = deployment.seats()["bob"].clone();
     let alice_session = alice
         .turn("ALICE_BEFORE_HIVE: plan a release")
         .session("alice-session")
@@ -149,29 +147,9 @@ async fn run(mode: Mode) -> Result<()> {
         .session_id;
     println!("Before the hive: Alice and Bob each have a host conversation.");
 
-    let storage = Arc::new(MemoryStorage::new());
-    let coordinator = Coordinator::new(
-        runtime.runtime_id().into(),
-        storage.clone(),
-        CoordinatorOptions::default(),
-    )
-    .await?;
-    let host = OpenHumanHost::new(runtime.runtime_id().into(), coordinator.clone())?;
-    host.register_agent_in_session(alice.clone(), &alice_session)
-        .await?;
-    host.register_agent_in_session(bob.clone(), &bob_session)
-        .await?;
-    coordinator
-        .create_hive(HiveInfo {
-            hive_id: "release".into(),
-            name: "Release".into(),
-            description: Some("Plan and review a release".into()),
-            members: Vec::new(),
-        })
-        .await?;
-    for agent in [&alice, &bob] {
-        coordinator.join_hive("release", agent.id()).await?;
-    }
+    let coordinator = deployment.host().coordinator();
+    coordinator.bind_session("alice", &alice_session).await?;
+    coordinator.bind_session("bob", &bob_session).await?;
     println!("In the hive: {:?}", coordinator.list_hives()?[0].members);
 
     // Each private task reaches its named member through the real adapter.

@@ -22,3 +22,6 @@ pending recovered work, mismatches and failed storage commits.
 
 `finalization.rs` covers failed finalizers, retained sessions, suppressed staged
 actions, invalid session rejection, and SQLite reopen.
+
+`settings.rs` pins frozen per-hive policy/roles and durable scheduled authority,
+including recovered work, delegated children and origin-conflicting retries.

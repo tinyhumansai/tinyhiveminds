@@ -11,6 +11,8 @@
 //! host.register_agent(agent).await?;
 //! # Ok(()) }
 //! ```
+pub mod config;
+pub mod deploy;
 mod error;
 mod host;
 pub mod journal;
@@ -27,3 +29,5 @@ pub use host::{
 };
 pub use journal::MemoryLog;
 pub use memory::{HiveMemory, HiveMemoryStore};
+#[cfg(test)]
+pub(crate) static RUNTIME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

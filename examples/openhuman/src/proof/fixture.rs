@@ -1,5 +1,8 @@
 //! Host-only agent configuration and loopback model fixtures.
-use openhuman_embed::{Access, Agent, AgentSpec, McpServer, Provider, Runtime, Workspace};
+use openhuman_embed::{
+    Access, Agent, AgentDefinitionSpec, AgentSpec, McpServer, Provider, Runtime, ToolScopeSpec,
+    Workspace,
+};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use wiremock::matchers::{method, path};
@@ -171,6 +174,16 @@ pub fn configured_agent(
     );
     let agent = runtime.agent(
         AgentSpec::new(id)
+            // Native MCP dispatch is an acting operation even for this benign
+            // evidence server. Restrict callable builtins and remote verbs.
+            .access(Access::full())
+            .definition(
+                AgentDefinitionSpec::new().tools(ToolScopeSpec::Named(
+                    ["use_skill", "mcp_list_tools", "mcp_call_tool"]
+                        .map(str::to_owned)
+                        .to_vec(),
+                )),
+            )
             .system_prompt(prompt)
             .tool_groups(openhuman_core::tools::toolpacks::ToolGroups::packed())
             .config(move |config| config.workspace_dir = workspace)
@@ -180,7 +193,8 @@ pub fn configured_agent(
                     "python3",
                     vec![server.to_string_lossy().into_owned(), id.to_owned()],
                 )
-                .description(format!("MCP_MARKER_{id}")),
+                .description(format!("MCP_MARKER_{id}"))
+                .allow_tools([format!("evidence_{id}")]),
             ),
     )?;
     Ok(agent)

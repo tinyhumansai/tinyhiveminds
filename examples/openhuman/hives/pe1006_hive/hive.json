@@ -1,0 +1,71 @@
+{
+  "runtime": {
+    "autonomy": "autonomous",
+    "memory_engine": "host",
+    "model": {
+      "temperature": 0.0
+    },
+    "concurrency": 5
+  },
+  "seats": [
+    {
+      "id": "theory",
+      "profile": "theory"
+    },
+    {
+      "id": "solver",
+      "profile": "solver"
+    },
+    {
+      "id": "checker",
+      "profile": "checker"
+    },
+    {
+      "id": "lead",
+      "profile": "lead"
+    },
+    {
+      "id": "researcher",
+      "profile": "researcher"
+    }
+  ],
+  "hives": [
+    {
+      "id": "pe1006",
+      "members": [
+        {
+          "seat": "theory",
+          "role": "theory"
+        },
+        {
+          "seat": "solver",
+          "role": "solver"
+        },
+        {
+          "seat": "checker",
+          "role": "checker"
+        },
+        {
+          "seat": "lead",
+          "role": "lead"
+        },
+        {
+          "seat": "researcher",
+          "role": "researcher"
+        }
+      ],
+      "memory_root": "pe1006",
+      "routing": {
+        "minimum_confidence": 0,
+        "high_impact_minimum_confidence": 0,
+        "clarification_threshold": 1000000,
+        "high_impact_threshold": 1000000,
+        "round_width": 5,
+        "choice_option_limit": 8
+      },
+      "coordinator": {
+        "round_width": 4
+      }
+    }
+  ]
+}

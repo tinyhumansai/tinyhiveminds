@@ -424,6 +424,11 @@ fn the_store_takes_the_hive_budget_and_reports_itself() {
 
 #[test]
 fn from_config_needs_an_engine_openhuman_would_bind() {
+    // Engine binding is process-global, shared with runtime-backed fixtures.
+    let _guard = crate::RUNTIME_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    openhuman_core::memory::engine::clear_host_engine();
     let mut config = RuntimeConfig::default();
     config.memory.engine = String::new();
     let error =

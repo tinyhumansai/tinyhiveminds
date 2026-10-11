@@ -1,15 +1,43 @@
 # Supplied OpenHuman agents and dynamic hives
 
-The host constructs one OpenHuman `Runtime` and configures each `Agent` before
-registration. TinyHivemind receives the existing handles through `OpenHumanHost`;
-the host keeps control of providers, MCP servers, skills, memory, and prompts.
-Each agent continues one conversation across all its joined hives.
+`HiveDeployment` builds one OpenHuman `Runtime` from a validated manifest,
+registers reusable profiles and persistent seats, and joins them to configured
+hives. Runtime-only model routes, Docker paths and storage ports remain host
+inputs. `OpenHumanHost` also accepts independently constructed agents. Each
+coordinator seat continues one conversation across all its joined hives.
 
 For a short introduction, run the offline two-agent example:
 
 ```sh
 cargo run --manifest-path examples/openhuman/Cargo.toml --bin basic_hive
 ```
+
+The [checked-in manifests](hives/README.md) provide the profiles, permission
+baselines, memberships, policies and Markdown context for `basic_hive`,
+`deepswe_hive`, `pe1006_hive` and `multi_hive`. The three existing binaries load
+these files before adding CLI-selected endpoints and run paths.
+
+```sh
+cargo run --manifest-path examples/openhuman/Cargo.toml --bin multi_hive
+cargo test --manifest-path examples/openhuman/Cargo.toml --test manifests
+```
+
+`multi_hive` uses a local model by default: three profiles create four seats on
+one runtime; two hives share the same seat with implementer and observer roles.
+The same native `file_write` succeeds in hive A and is refused in hive B. The
+native denial aborts B's turn and remains an audited failure. The host explicitly
+releases the seat with a safe note and submits a fresh assignment, which completes
+without replaying the write. Both hives finish successfully, and the shared seat
+keeps its original native session. `--live` resolves `OPENROUTER_API_KEY` through
+the manifest reference; `OPENROUTER_MODEL` optionally selects the model.
+
+The pure completion experiments retain their host-owned `CompletionDriver` and
+outbox tools. Deployment supplies their native seats, MCP connections and
+configured policy views; per-turn `cwd` keeps the Docker or durable Euler acting
+root. PE's configured CortexDB engine is supplied through the native engine port.
+Native harness initialization starts explicitly after assembly. The current
+OpenHuman `memory_queue` service flag has no queue implementation; the shared
+Markdown memory tools remain active independently.
 
 For Docker-isolated offline and live OpenRouter runs, use the
 [basic hive run script](basic-hive/README.md).
@@ -275,3 +303,7 @@ checks. A later clean run staged a newly published public implementation,
 required the checker to execute its built-in brute-force checkpoints, and
 independently matched the sealed oracle. The answer and derivation remain
 outside the repository; the run artifacts stay under the ignored workspace.
+
+The multi-hive host injects a native, classified `file_write` tool scoped to an
+isolated `proof.txt`. The deployment replaces the native host tool belt, so this
+example explicitly supplies its filesystem tool through `BuildOptions.tools`.

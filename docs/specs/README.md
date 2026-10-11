@@ -24,6 +24,8 @@ See [`example-retry-policy.md`](example-retry-policy.md) for a complete sample.
 
 ## Current specifications
 
+- [`openhuman-hive-config.md`](openhuman-hive-config.md) — accepted: one OpenHuman runtime, reusable profiles, persistent seats across hives, permission narrowing and configured workflows.
+
 - [`dynamic-hives.md`](dynamic-hives.md) — implemented: supplied agents on one
   runtime, permanent tools, dynamic membership, durable coordination, and
   continuing sessions. See the [migration guide](../opencompany-migration.md)

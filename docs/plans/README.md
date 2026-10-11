@@ -29,6 +29,8 @@ See [`example-retry-policy.md`](example-retry-policy.md) for a test-first sample
 
 ## Plans
 
+- [`2026-10-10-openhuman-hive-config.md`](2026-10-10-openhuman-hive-config.md) — accepted implementation sequence for configuration, deployment and multi-hive examples.
+
 - [`chat-identity.md`](chat-identity.md) — implemented P1 conversation identity.
 - [`desks.md`](desks.md) — P2 desk DTOs, validation, and membership overlay.
 - [`mentions.md`](mentions.md) — P3 roster and mention resolution.

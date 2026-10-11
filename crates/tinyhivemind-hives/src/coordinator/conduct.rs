@@ -30,7 +30,11 @@ struct Environment {
     routing: RoutingPolicy,
 }
 impl Environment {
-    fn new(hive: &HiveInfo, options: &CoordinatorOptions) -> Result<Self> {
+    fn new(
+        hive: &HiveInfo,
+        options: &CoordinatorOptions,
+        settings: Option<&crate::HiveSettings>,
+    ) -> Result<Self> {
         let graph = HiveGraph::new(
             Desk {
                 id: hive.hive_id.clone(),
@@ -44,7 +48,7 @@ impl Environment {
                 .map(|id| RouteCandidate {
                     id: id.clone(),
                     label: id.clone(),
-                    role: None,
+                    role: settings.and_then(|settings| settings.roles.get(id).cloned()),
                     description: None,
                     capabilities: Vec::new(),
                     learned_topics: Vec::new(),
@@ -59,9 +63,8 @@ impl Environment {
                 .map(|id| AgentBinding::new(id, Seat(id.clone())))
                 .collect(),
         )?;
-        Ok(Self {
-            hive: bound,
-            routing: RoutingPolicy {
+        let mut routing = settings.map_or(
+            RoutingPolicy {
                 minimum_confidence: Probability::ZERO,
                 high_impact_minimum_confidence: Probability::ONE,
                 clarification_threshold: Probability::ONE,
@@ -69,6 +72,12 @@ impl Environment {
                 round_width: options.round_width,
                 choice_option_limit: 8,
             },
+            |settings| settings.routing.clone(),
+        );
+        routing.round_width = routing.round_width.min(options.round_width);
+        Ok(Self {
+            hive: bound,
+            routing,
         })
     }
     fn driver(&self, options: &CoordinatorOptions) -> Result<CompletionDriver<'_, Seat>> {
@@ -133,6 +142,7 @@ fn append(
     let only_for = narrow_readers(state, &destination, thread, only_for)?;
     let sequence = next_sequence(state)?;
     state.messages.push(Message {
+        scheduled_job_id: episode.scheduled_job_id.clone(),
         message_id: format!("hivemind:event:{sequence}"),
         sequence,
         sender,
@@ -203,7 +213,12 @@ pub(super) async fn prepare(state: &mut StoredState, options: &CoordinatorOption
         if running || !episode.pending.is_empty() || episode.waiting {
             continue;
         }
-        let environment = Environment::new(&episode.hive, options)?;
+        let effective = episode
+            .settings
+            .as_ref()
+            .map(|settings| settings.options.clone());
+        let options = effective.as_ref().unwrap_or(options);
+        let environment = Environment::new(&episode.hive, options, episode.settings.as_ref())?;
         let driver = environment.driver(options)?;
         let mut conductor = environment.conductor(&driver, &episode, options)?;
         if episode.wave_open {
@@ -278,7 +293,12 @@ pub(super) fn open(
     options: &CoordinatorOptions,
 ) -> Result<(Vec<Message>, String)> {
     let mut episode = state.episodes[index].clone();
-    let environment = Environment::new(&episode.hive, options)?;
+    let effective = episode
+        .settings
+        .as_ref()
+        .map(|settings| settings.options.clone());
+    let options = effective.as_ref().unwrap_or(options);
+    let environment = Environment::new(&episode.hive, options, episode.settings.as_ref())?;
     let driver = environment.driver(options)?;
     let mut conductor = environment.conductor(&driver, &episode, options)?;
     let messages: Vec<_> = state
@@ -331,7 +351,16 @@ pub(super) fn open(
             opened_it: false,
         };
     }
-    let brief = brief.render();
+    let mut brief = brief.render();
+    let teammates = teammates(&episode);
+    for teammate in &teammates {
+        if let Some(role) = &teammate.role {
+            brief.push_str("\n@");
+            brief.push_str(&teammate.id);
+            brief.push_str(": ");
+            brief.push_str(role);
+        }
+    }
     checkpoint(&conductor, &mut episode)?;
     state.episodes[index] = episode;
     Ok((messages, brief))
@@ -348,7 +377,12 @@ pub(super) fn record(
     if episode.finished {
         return Ok(());
     }
-    let environment = Environment::new(&episode.hive, options)?;
+    let effective = episode
+        .settings
+        .as_ref()
+        .map(|settings| settings.options.clone());
+    let options = effective.as_ref().unwrap_or(options);
+    let environment = Environment::new(&episode.hive, options, episode.settings.as_ref())?;
     let driver = environment.driver(options)?;
     let mut conductor = environment.conductor(&driver, &episode, options)?;
     let mut calls: Vec<_> = actions
@@ -392,7 +426,12 @@ pub(super) fn release(
         {
             continue;
         }
-        let environment = Environment::new(&episode.hive, options)?;
+        let effective = episode
+            .settings
+            .as_ref()
+            .map(|settings| settings.options.clone());
+        let options = effective.as_ref().unwrap_or(options);
+        let environment = Environment::new(&episode.hive, options, episode.settings.as_ref())?;
         let driver = environment.driver(options)?;
         let mut conductor = environment.conductor(&driver, &episode, options)?;
         conductor.resume_seat(agent_id);
@@ -420,7 +459,12 @@ fn prune_removed(
         .cloned()
         .collect();
     if !removed.is_empty() {
-        let environment = Environment::new(&episode.hive, options)?;
+        let effective = episode
+            .settings
+            .as_ref()
+            .map(|settings| settings.options.clone());
+        let options = effective.as_ref().unwrap_or(options);
+        let environment = Environment::new(&episode.hive, options, episode.settings.as_ref())?;
         let driver = environment.driver(options)?;
         let mut conductor = environment.conductor(&driver, episode, options)?;
         for turn in &removed {
@@ -456,4 +500,38 @@ pub(super) fn prune_pending(state: &mut StoredState, options: &CoordinatorOption
         state.episodes[index] = episode;
     }
     Ok(changed)
+}
+
+/// Explicit host-neutral teammate payload, using the frozen episode roles.
+pub(super) fn teammates(
+    episode: &EpisodeRecord,
+) -> Vec<tinyhivemind_core::runtime::BriefedTeammate> {
+    episode
+        .hive
+        .members
+        .iter()
+        .map(|id| tinyhivemind_core::runtime::BriefedTeammate {
+            id: id.clone(),
+            label: id.clone(),
+            role: episode
+                .settings
+                .as_ref()
+                .and_then(|settings| settings.roles.get(id).cloned()),
+            description: None,
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod test;
+
+/// Visible teammates exclude the viewing agent.
+pub(super) fn teammates_for(
+    episode: &EpisodeRecord,
+    agent_id: &str,
+) -> Vec<tinyhivemind_core::runtime::BriefedTeammate> {
+    teammates(episode)
+        .into_iter()
+        .filter(|teammate| teammate.id != agent_id)
+        .collect()
 }

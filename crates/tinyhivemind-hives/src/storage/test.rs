@@ -6,6 +6,7 @@ use crate::{Destination, Message, SendMessage};
 
 pub(super) fn row(sequence: u64, accepted: bool) -> TranscriptRow {
     let message = Message {
+        scheduled_job_id: None,
         message_id: format!("m{sequence}"),
         sequence,
         sender: "a".into(),
@@ -142,6 +143,8 @@ fn retention_keeps_recent_settled_episodes_and_deliveries_only() {
     let mut state = StoredState::default();
     for (index, finished) in [true, true, false, true].into_iter().enumerate() {
         state.episodes.push(EpisodeRecord {
+            settings: None,
+            scheduled_job_id: None,
             episode_id: format!("e{index}"),
             hive: crate::HiveInfo {
                 hive_id: "h".into(),
@@ -209,6 +212,8 @@ fn retention_keeps_a_settled_episode_a_running_turn_still_reports_to() {
     let mut state = StoredState::default();
     for id in ["running", "idle"] {
         state.episodes.push(EpisodeRecord {
+            settings: None,
+            scheduled_job_id: None,
             episode_id: id.into(),
             hive: crate::HiveInfo {
                 hive_id: id.into(),
@@ -231,6 +236,9 @@ fn retention_keeps_a_settled_episode_a_running_turn_still_reports_to() {
         "a".into(),
         RunningTurn {
             request: crate::TurnRequest {
+                turn_id: String::new(),
+                scheduled_job_id: None,
+                teammates: Vec::new(),
                 agent_id: "a".into(),
                 session_id: None,
                 messages: Vec::new(),
@@ -257,4 +265,14 @@ fn retention_keeps_a_settled_episode_a_running_turn_still_reports_to() {
     .apply(&mut state);
     assert_eq!(state.episodes.len(), 1);
     assert_eq!(state.episodes[0].episode_id, "running");
+}
+
+#[test]
+fn retention_policy_wire_form_and_omitted_defaults_are_stable() {
+    let value: crate::RetentionPolicy = serde_json::from_str("{}").unwrap();
+    assert_eq!(value, crate::RetentionPolicy::default());
+    assert_eq!(
+        serde_json::to_value(value).unwrap(),
+        serde_json::json!({"settled_episodes":null,"delivered":null,"interrupted":null,"pending_per_agent":null})
+    );
 }

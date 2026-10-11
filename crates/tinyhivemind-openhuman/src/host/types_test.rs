@@ -49,6 +49,7 @@ fn turn_scope_names_the_episode_its_thread_and_distinct_senders() {
     use super::TurnScope;
     use tinyhivemind_hives::{Destination, EpisodeContext, Message, TurnRequest};
     let row = |id: &str, sender: &str, thread| Message {
+        scheduled_job_id: None,
         message_id: id.into(),
         sequence: 0,
         sender: sender.into(),
@@ -65,6 +66,9 @@ fn turn_scope_names_the_episode_its_thread_and_distinct_senders() {
         brief: "brief".into(),
     };
     let request = TurnRequest {
+        turn_id: String::new(),
+        scheduled_job_id: None,
+        teammates: Vec::new(),
         agent_id: "a".into(),
         session_id: None,
         messages: vec![
@@ -86,6 +90,7 @@ fn turn_scope_names_the_episode_its_thread_and_distinct_senders() {
     let mut direct = request;
     direct.episode = None;
     direct.messages = vec![Message {
+        scheduled_job_id: None,
         destination: Destination::Agent("a".into()),
         thread: None,
         ..row("d1", tinyhivemind_hives::HOST_ID, None)

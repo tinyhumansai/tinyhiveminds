@@ -20,6 +20,11 @@ before sharing or registering the host.
 Factories and attached tools carry weak host references to prevent a cycle.
 The host's progress sender must have a reader throughout each turn.
 
+Ordinary supplied agents retain their own tool sources. `with_tools` opts into
+replacement belts owned by the host, combining its extra source with the
+episode-bound Hivemind source. Manifest deployments use that explicit ownership
+to preserve extras while rebuilding the captured permissions for each turn.
+
 Existing host conversations use the coordinator's atomic session registration
 API. A concurrently running scheduler sees the supplied session from its first
 claim. A claimed runner waits for attachment activation; cancellation during

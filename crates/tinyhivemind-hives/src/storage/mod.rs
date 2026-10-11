@@ -10,7 +10,7 @@ use crate::{Error, Result};
 pub use sqlite::SqliteStorage;
 use std::{future::Future, pin::Pin, sync::Mutex};
 pub use types::{
-    AgentRecord, Delivery, DeliveryStatus, EpisodeRecord, RetentionPolicy, RunningTurn,
+    AgentRecord, Delivery, DeliveryStatus, EpisodeRecord, ParkedTurn, RetentionPolicy, RunningTurn,
     StoredState, TranscriptRow,
 };
 

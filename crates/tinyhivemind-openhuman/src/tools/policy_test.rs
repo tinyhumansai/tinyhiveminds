@@ -44,6 +44,7 @@ async fn policed() -> (OpenHumanHost, Arc<NoSecrets>) {
 }
 fn tool(host: &OpenHumanHost, kind: Kind) -> HiveTool {
     HiveTool {
+        session: None,
         actor: "a".into(),
         host: Arc::downgrade(&host.inner),
         kind,

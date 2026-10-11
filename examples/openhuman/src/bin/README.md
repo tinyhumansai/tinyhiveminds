@@ -2,6 +2,7 @@
 
 | File | Purpose |
 | --- | --- |
+| `multi_hive.rs` | Offline/live one-runtime shared-seat proof: distinct roles, allowed/refused file writes, explicit safe recovery, continuing session. |
 | `basic_hive.rs` | Offline or live two-agent OpenHuman quickstart: host sessions, hive membership, private tasks, leaving, and session continuity. |
 | `deepswe_hive.rs` | Hermetic four-agent external software-engineering adapter with host-side OpenHuman and Docker-confined tools. |
 | `deepswe_hive/` | Task validation, MCP tools, Docker confinement, and contract tests for the DeepSWE adapter. |

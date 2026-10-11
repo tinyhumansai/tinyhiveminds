@@ -57,6 +57,15 @@ impl Default for CoordinatorOptions {
 /// One continuing agent turn with its captured authorization context.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TurnRequest {
+    /// Unique durable reservation identity, renewed even when the same input is resumed.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub turn_id: String,
+    /// Durable scheduled authority, absent for interactive work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_job_id: Option<String>,
+    /// Teammate roles captured from the episode's hive configuration.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub teammates: Vec<tinyhivemind_core::runtime::BriefedTeammate>,
     /// Bound agent identity.
     pub agent_id: String,
     /// Previously returned continuing session identity.
@@ -129,6 +138,9 @@ pub enum Destination {
 /// Durable attributed message.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Message {
+    /// Scheduled job that authorized this work, retained through delegation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_job_id: Option<String>,
     /// Caller retry identity, or a coordinator-generated event identity.
     pub message_id: String,
     /// Globally monotonic durable sequence.

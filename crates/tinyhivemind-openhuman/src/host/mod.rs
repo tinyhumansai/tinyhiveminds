@@ -21,6 +21,7 @@ pub(crate) struct Inner {
     management: Option<Management>,
     hooks: Arc<dyn TurnHooks>,
     memory: Option<HiveMemory>,
+    extra_tools: Option<HostTools>,
     turn_timeout: Duration,
     pub send_policy: Option<Arc<dyn SendAuthorizer>>,
 }
@@ -63,6 +64,7 @@ impl OpenHumanHost {
                 management: None,
                 hooks: Arc::new(DefaultHooks),
                 memory: None,
+                extra_tools: None,
                 turn_timeout: TURN_TIMEOUT,
                 send_policy: None,
             }),
@@ -89,6 +91,14 @@ impl OpenHumanHost {
     pub fn with_hooks(mut self, hooks: Arc<dyn TurnHooks>) -> Result<Self> {
         let inner = self.configurable_inner()?;
         inner.hooks = hooks;
+        Ok(self)
+    }
+    /// Supply extra host tools in every continuing turn's replacement belt.
+    /// Configure before registering or sharing this host.
+    /// # Errors
+    /// Refuse settings after registration or sharing.
+    pub fn with_tools(mut self, tools: HostTools) -> Result<Self> {
+        self.configurable_inner()?.extra_tools = Some(tools);
         Ok(self)
     }
     /// Gate the outbound tools — `hivemind_send_agent`, `hivemind_send_hive`,
@@ -219,13 +229,29 @@ impl OpenHumanHost {
         let managed = self.inner.management.is_some();
         let activation = Arc::new(Activation::default());
         let attached_activation = activation.clone();
-        let source: HostTools = Arc::new(move |_| {
-            let tools = crate::tools::belt(&actor, &weak, &attached_activation, managed);
+        let extra = self.inner.extra_tools.clone();
+        let source: HostTools = Arc::new(move |context| {
+            let tools = crate::tools::belt_in_session(
+                &actor,
+                &weak,
+                &attached_activation,
+                managed,
+                context.session_id(),
+            );
             let permanent = tools.iter().map(|tool| tool.name().to_owned()).collect();
-            HostTurnTools {
+            let mut belt = HostTurnTools {
                 permanent,
                 ..HostTurnTools::advertised(tools)
+            };
+            if let Some(extra) = &extra {
+                let other = extra(context);
+                belt.tools.extend(other.tools);
+                belt.permanent.extend(other.permanent);
+                belt.visible.extend(other.visible);
+                belt.withheld.extend(other.withheld);
+                belt.policy = other.policy;
             }
+            belt
         });
         agent.attach_tools("hivemind", source.clone())?;
         let runner = Arc::new(SuppliedRunner {
@@ -233,6 +259,7 @@ impl OpenHumanHost {
             hooks: self.inner.hooks.clone(),
             activation: activation.clone(),
             timeout: self.inner.turn_timeout,
+            source: self.inner.extra_tools.as_ref().map(|_| source.clone()),
         });
         // Keep the exact source for retry even if durable registration fails.
         entries.insert(

@@ -56,7 +56,7 @@ fn every_seat_registered_with_hive_memory_is_bound_under_the_hive_root() {
             host.hive_memory().map(HiveMemory::root),
             Some("team:hive-1")
         );
-        for seat in ["scout", "critic", "writer"] {
+        for seat in ["scout", "reviewer-seat", "writer"] {
             let agent = host
                 .register_spec(&runtime, AgentSpec::new(seat))
                 .await
@@ -64,7 +64,7 @@ fn every_seat_registered_with_hive_memory_is_bound_under_the_hive_root() {
             assert_eq!(bound(&agent), (Some(seat), Some("team:hive-1")));
         }
         let registered: Vec<_> = host.inner.agents.lock().unwrap().keys().cloned().collect();
-        assert_eq!(registered, ["critic", "scout", "writer"]);
+        assert_eq!(registered, ["reviewer-seat", "scout", "writer"]);
     });
 }
 
@@ -79,7 +79,7 @@ fn seats_carry_no_binding_when_hive_memory_is_off() {
             .unwrap();
         assert_eq!(bound(&agent), (None, None));
         // An unbound agent built elsewhere registers as before.
-        let other = runtime.agent(AgentSpec::new("critic")).unwrap();
+        let other = runtime.agent(AgentSpec::new("reviewer-seat")).unwrap();
         host.register_agent(other).await.unwrap();
     });
 }
@@ -109,7 +109,9 @@ fn rejects_a_seat_built_without_the_hive_binding() {
             matches!(&error, Error::UnboundSeat { seat, .. } if seat == "scout"),
             "{error}"
         );
-        let elsewhere = hive("hive-2").bind(AgentSpec::new("critic")).unwrap();
+        let elsewhere = hive("hive-2")
+            .bind(AgentSpec::new("reviewer-seat"))
+            .unwrap();
         let error = host
             .register_agent(runtime.agent(elsewhere).unwrap())
             .await

@@ -1,9 +1,16 @@
 # Dynamic coordinator
 
+`release_parked` matches the unique reservation, native session, episode,
+accepted message identities and scheduled provenance against a completed
+parked turn in the transaction that releases it. Approval adapters use this
+port to reject early answers and stale records, including a later park on the
+same input. `release_with` remains the host's manual release operation.
+
 | File | Responsibility |
 | --- | --- |
 | `mod.rs` | Shared handle, dynamic APIs, and authorization snapshots |
 | `transaction.rs` | Writer gate, incremental commits outside the live lock, conflict reload |
+| `settings.rs` | Per-hive native policy and retained roles, frozen at acceptance |
 | `types.rs` | Host runner port and public payloads |
 | `messaging.rs` | Atomic acceptance, retry IDs, starters, attribution, and private reads |
 | `observe.rs` | Host transcript, committed-revision watch, episode status |
@@ -68,3 +75,26 @@ the same transaction as interruption. Its input is not acknowledged, and its
 reply and staged episode actions are discarded. Later inputs continue that
 conversation, including after SQLite reopen. Empty or changed session IDs fail
 validation without replacing a prior binding.
+
+`configure_hive(id, HiveSettings)` configures future episodes. Acceptance freezes
+native completion options, routing thresholds, and roles; reconfiguration never
+changes already accepted work. Roles reach native routing candidates, rendered
+briefs, and `TurnRequest::teammates`. Retained role entries survive leave/rejoin.
+Both per-hive widths must fit the global concurrent-turn cap; routing width is
+intersected with completion width. Retention remains global: differing per-hive
+retention settings are refused rather than ignored.
+
+`send_scheduled_as_host(job_id, request)` commits scheduled authority with the
+accepted transcript row and episode. Every descendant assignment and claimed
+turn carries `scheduled_job_id`, including queued or recovered work. Retrying
+with a changed job identity or interactive origin fails with `MessageConflict`.
+Sends attributed to an actively scheduled agent inherit the same durable authority;
+forwarding to another agent or hive cannot strip it. The host must scope automation
+authority from each captured request explicitly.
+
+The current completion coordinator attaches no semantic routing provider
+(`BroadcastRouting.primary` and `.reasoning` are absent). Broadcasts therefore
+use the driver's deterministic single-owner fallback. Native routing policy and
+roles reach the routing request, and widths remain bounded, but confidence,
+clarification and high-impact thresholds cannot change fallback selection.
+Configuring these thresholds does not activate a model client.

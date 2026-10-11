@@ -6,6 +6,7 @@ use crate::{Delivery, DeliveryStatus, EpisodeRecord, Error, Result, StoredState}
 use std::collections::BTreeSet;
 impl Coordinator {
     /// Accept and enqueue a message without waiting for a response.
+    /// Sends by an active scheduled agent inherit its captured scheduled authority.
     /// # Errors
     /// Returns unknown sender/destination, missing membership, invalid thread,
     /// conflicting retry identity or persistence errors.
@@ -13,7 +14,7 @@ impl Coordinator {
         if request.sender == HOST_ID {
             return Err(Error::InvalidIdentifier("sender"));
         }
-        self.accept(request).await
+        self.accept(request, None).await
     }
     /// Submit through the reserved host identity rather than impersonating an agent.
     /// The request's sender field is overwritten.
@@ -21,30 +22,39 @@ impl Coordinator {
     /// Returns destination, visibility, retry or storage validation errors.
     pub async fn send_as_host(&self, mut request: SendMessage) -> Result<Receipt> {
         request.sender = HOST_ID.into();
-        self.accept(request).await
+        self.accept(request, None).await
     }
-    async fn accept(&self, request: SendMessage) -> Result<Receipt> {
+    /// Accept host work carrying durable scheduled authority.
+    /// # Errors
+    /// Returns invalid job identity, destination, retry, visibility or storage errors.
+    pub async fn send_scheduled_as_host(
+        &self,
+        job_id: &str,
+        mut request: SendMessage,
+    ) -> Result<Receipt> {
+        identifier(job_id, "scheduled job id")?;
+        request.sender = HOST_ID.into();
+        self.accept(request, Some(job_id.to_owned())).await
+    }
+    async fn accept(
+        &self,
+        request: SendMessage,
+        scheduled_job_id: Option<String>,
+    ) -> Result<Receipt> {
         identifier(&request.message_id, "message id")?;
         if request.message_id.starts_with("hivemind:") {
             return Err(Error::InvalidIdentifier("reserved message id"));
         }
         let retention = self.inner.options.retention;
         self.update(|state| {
-            if let Some(old) = state.accepted.get(&request.message_id) {
-                if old != &request {
-                    return Err(Error::MessageConflict(request.message_id.clone()));
-                }
-                let old_message = state
-                    .messages
-                    .iter()
-                    .find(|msg| msg.message_id == request.message_id)
-                    .ok_or_else(|| {
-                        Error::InvalidState("accepted message missing transcript row".into())
-                    })?;
-                return Ok(Receipt {
-                    message_id: request.message_id.clone(),
-                    sequence: old_message.sequence,
-                });
+            let scheduled_job_id = scheduled_job_id.clone().or_else(|| {
+                state
+                    .running
+                    .get(&request.sender)
+                    .and_then(|running| running.request.scheduled_job_id.clone())
+            });
+            if let Some(receipt) = retry_receipt(state, &request, scheduled_job_id.as_deref())? {
+                return Ok(receipt);
             }
             let recipients = recipients(state, &request)?;
             let only_for = narrow_readers(
@@ -57,6 +67,7 @@ impl Coordinator {
             let episode_id = matches!(request.destination, Destination::Hive(_))
                 .then(|| format!("episode:{sequence}"));
             let message = Message {
+                scheduled_job_id: scheduled_job_id.clone(),
                 message_id: request.message_id.clone(),
                 sequence,
                 sender: request.sender.clone(),
@@ -94,6 +105,8 @@ impl Coordinator {
                     let id = episode_id
                         .ok_or_else(|| Error::InvalidState("hive message has no episode".into()))?;
                     state.episodes.push(EpisodeRecord {
+                        settings: state.hive_settings.get(&hive.hive_id).cloned(),
+                        scheduled_job_id: scheduled_job_id.clone(),
                         episode_id: id,
                         hive,
                         opened_at: sequence,
@@ -391,4 +404,30 @@ pub(super) fn narrow_readers(
         return Err(Error::InvalidThread(thread.unwrap_or_default()));
     }
     Ok(readers)
+}
+
+/// Retry authority is part of the same atomic identity as the authored payload.
+fn retry_receipt(
+    state: &StoredState,
+    request: &SendMessage,
+    scheduled_job_id: Option<&str>,
+) -> Result<Option<Receipt>> {
+    let Some(old) = state.accepted.get(&request.message_id) else {
+        return Ok(None);
+    };
+    if old != request {
+        return Err(Error::MessageConflict(request.message_id.clone()));
+    }
+    let message = state
+        .messages
+        .iter()
+        .find(|msg| msg.message_id == request.message_id)
+        .ok_or_else(|| Error::InvalidState("accepted message missing transcript row".into()))?;
+    if message.scheduled_job_id.as_deref() != scheduled_job_id {
+        return Err(Error::MessageConflict(request.message_id.clone()));
+    }
+    Ok(Some(Receipt {
+        message_id: request.message_id.clone(),
+        sequence: message.sequence,
+    }))
 }

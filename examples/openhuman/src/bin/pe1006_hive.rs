@@ -1,15 +1,10 @@
 //! Web-assisted OpenRouter GPT-OSS OpenHuman hive experiment for Project Euler 1006.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::join_all;
-use openhuman_embed::{
-    Access, AgentDefinitionSpec, AgentSpec, McpServer, Provider, Runtime, RuntimeConfig,
-    ServiceSet, ToolScopeSpec, Workspace,
-};
+use openhuman_embed::{Provider, RuntimeConfig, ServiceSet};
 use serde_json::json;
 use tinyhivemind_core::driver::{
     AgentBinding, BoundHive, BroadcastRouting, CommittedUtterance, CompletionDriver, HiveGraph,
@@ -22,6 +17,8 @@ use tinyhivemind_core::hive::{
 use tinyhivemind_core::runtime::desk::{Desk, ResponderMode};
 use tinyhivemind_core::typesafe::JevRouter;
 use tinyhivemind_openhuman::RegisteredAgent;
+use tinyhivemind_openhuman::deploy::BuildOptions;
+use tinyhivemind_openhuman_example::{deploy, manifest};
 use wiremock::matchers::any;
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -48,21 +45,7 @@ const MODEL: &str = "openai/gpt-oss-120b:nitro";
 const PROVIDER_BASE: &str = "https://openrouter.ai/api/v1";
 const TURN_TIMEOUT: Duration = Duration::from_secs(600);
 const MAX_TURNS: u32 = 25;
-const TASK_1006: &str = r#"Starting with two strings S_0 = 0 and S_1 = 01, define S_n as the
-concatenation S_(n-1)S_(n-2) for n >= 2.
-
-For example, S_2 = 010, S_3 = 01001, and S_4 = 01001010.
-
-A string is called a Fibonacci subword if it is a contiguous substring of
-some S_n. For every positive integer k there are exactly k+1 different
-Fibonacci subwords of length k. Interpret each as a decimal number, ignoring
-leading zeroes, and let Psi(k) be the sum of their squares.
-
-For k = 3 the four subwords are 001, 010, 100, and 101, so
-Psi(3) = 20302. You are also given
-Psi(10) = 10699667 (mod 101001001).
-
-Find Psi(10^18) mod 101001001."#;
+const TASK_1006: &str = include_str!("../../hives/pe1006_hive/context/task.md");
 const TASK_1008: &str = r#"Define the (N,M)-functional inverse of x^2 to be the monic
 polynomial Q(x) of degree N+1 such that Q(n^2) is congruent to n modulo M for
 all integers 0 <= n <= N and all coefficients are non-negative and smaller
@@ -178,59 +161,65 @@ async fn run() -> anyhow::Result<()> {
             config.memory.engine
         );
     }
-    let runtime = Arc::new(
-        Runtime::builder()
-            .config(config)
-            .workspace(Workspace::dir(run_dir.join("openhuman-runtime")))
-            .services(memory_services())
-            .backend_url(backend.uri())
-            .provider(Provider::openai_compatible(PROVIDER_BASE, api_key).model(MODEL))
-            .access(Access::full())
-            .build()
-            .await?,
-    );
-    let bindings = vec![
-        instantiated(
-            &runtime,
-            &workspace,
-            &outbox_dir,
-            &problem,
-            "theory",
-            role_prompt(&problem, "theory"),
-        )?,
-        instantiated(
-            &runtime,
-            &workspace,
-            &outbox_dir,
-            &problem,
-            "solver",
-            role_prompt(&problem, "solver"),
-        )?,
-        instantiated(
-            &runtime,
-            &workspace,
-            &outbox_dir,
-            &problem,
-            "checker",
-            role_prompt(&problem, "checker"),
-        )?,
-        instantiated(
-            &runtime,
-            &workspace,
-            &outbox_dir,
-            &problem,
-            "lead",
-            role_prompt(&problem, "lead"),
-        )?,
-        instantiated(
-            &runtime,
-            &workspace,
-            &outbox_dir,
-            &problem,
-            "researcher",
-            role_prompt(&problem, "researcher"),
-        )?,
-    ];
+    let mut manifest = manifest("pe1006_hive")?;
+    manifest.runtime.workspace = Some(run_dir.join("openhuman-runtime").display().to_string());
+    let executable = std::env::current_exe()?;
+    for profile in &mut manifest.profiles {
+        if problem == "1008" {
+            profile.system_prompt = role_prompt(&problem, &profile.id);
+        }
+        let mcp = &mut profile.mcp[0];
+        mcp.endpoint = executable.display().to_string();
+        mcp.args = vec![
+            "--hive-tools".into(),
+            "--agent".into(),
+            profile.id.clone(),
+            "--outbox".into(),
+            outbox_dir
+                .join(format!("{}.jsonl", profile.id))
+                .display()
+                .to_string(),
+            "--memory".into(),
+            workspace.join(MEMORY_FILE).display().to_string(),
+        ];
+    }
+    let memory_engine = match openhuman_core::memory::engine::resolve(&config) {
+        openhuman_core::memory::engine::Binding::On(bound) => Some(bound.engine),
+        openhuman_core::memory::engine::Binding::Off { .. } => {
+            println!(
+                "Native CortexDB memory is unavailable; continuing with durable Markdown hive memory."
+            );
+            manifest.runtime.memory_engine = "disabled".into();
+            None
+        }
+    };
+    let routing_policy = manifest.hives[0].routing.clone();
+    let deployment = deploy(
+        manifest,
+        BuildOptions {
+            memory_engine,
+            config: Some(config),
+            backend_url: Some(backend.uri()),
+            provider: Some(Provider::openai_compatible(PROVIDER_BASE, api_key).model(MODEL)),
+            ..Default::default()
+        },
+    )
+    .await?;
+    let runtime = deployment.runtime();
+    let effective = runtime
+        .core_runtime()
+        .context()
+        .embedder_config()
+        .ok_or_else(|| anyhow::anyhow!("native runtime config unavailable"))?;
+    // The current native memory_queue flag is vestigial; harness initialization
+    // is explicitly started after all manifest seats and hives are assembled.
+    openhuman_core::core::runtime::services::start_boot_once_jobs(memory_services(), effective)
+        .await;
+    openhuman_core::core::runtime::services::start_bootstrap_jobs(memory_services(), effective);
+    let bindings = ["theory", "solver", "checker", "lead", "researcher"]
+        .iter()
+        .map(|id| AgentBinding::new(*id, RegisteredAgent(deployment.seats()[*id].clone())))
+        .collect();
     let team = ["theory", "solver", "checker", "lead", "researcher"];
     let hive = BoundHive::new(
         HiveGraph::new(
@@ -249,7 +238,6 @@ async fn run() -> anyhow::Result<()> {
     )?;
     let router = JevRouter::new(typesafe_support::Transport::new(typesafe_api_key)?);
     let mut roster_version = 1_u64;
-    let routing_policy = typesafe_support::routing_policy();
     let thread_context = typesafe_support::thread_context();
     let initial_request = hive.desk_request(
         task,
@@ -356,6 +344,7 @@ async fn run() -> anyhow::Result<()> {
                         id,
                         TurnContext {
                             transcript: &transcript,
+                            workspace: &workspace,
                             visibility: &visibility,
                             outbox: outbox_dir.join(format!("{id}.jsonl")),
                             assignment: completion_assignment(&problem, id),
@@ -527,67 +516,6 @@ fn ensure_round_fits(turns: u32, round_size: usize) -> anyhow::Result<()> {
 #[cfg(test)]
 #[path = "pe1006_hive/test.rs"]
 mod test;
-
-fn instantiated(
-    runtime: &Runtime,
-    workspace: &Path,
-    outbox_dir: &Path,
-    problem: &str,
-    id: &'static str,
-    role: String,
-) -> anyhow::Result<AgentBinding<RegisteredAgent>> {
-    let runtime_id = format!("{id}-pe{problem}-{}", std::process::id());
-    let tools = vec![
-        "file_read".into(),
-        "file_write".into(),
-        "mcp_list_tools".into(),
-        "mcp_call_tool".into(),
-        "shell".into(),
-    ];
-    let policy = if id == "researcher" {
-        RESEARCH_POLICY
-    } else {
-        SEALED
-    };
-    let executable = std::env::current_exe()?;
-    let mcp = McpServer::stdio(
-        "tinyhive",
-        executable.to_string_lossy(),
-        [
-            "--hive-tools".to_string(),
-            "--agent".to_string(),
-            id.to_string(),
-            "--outbox".to_string(),
-            outbox_dir.join(format!("{id}.jsonl")).display().to_string(),
-            "--memory".to_string(),
-            workspace.join(MEMORY_FILE).display().to_string(),
-        ],
-    )
-    .allow_tools([
-        "broadcast",
-        "complete_episode",
-        "hive_memory_recall",
-        "hive_memory_note",
-        "hive_memory_forget",
-    ])
-    .description("Completion-driven TinyHiveMind episode tools");
-    runtime
-        .agent(
-            AgentSpec::new(runtime_id)
-                .system_prompt(format!("{role}\n\n{policy}"))
-                .definition(
-                    AgentDefinitionSpec::new()
-                        .tools(ToolScopeSpec::Named(tools))
-                        .disallow_tools(["run_code", "ask_docs"])
-                        .max_iterations(12)
-                        .temperature(0.0),
-                )
-                .mcp(mcp)
-                .action_dir(workspace),
-        )
-        .map(|agent| AgentBinding::new(id, RegisteredAgent(agent)))
-        .map_err(Into::into)
-}
 
 async fn inherited_config() -> anyhow::Result<RuntimeConfig> {
     let mut config = RuntimeConfig::load_or_init().await?;

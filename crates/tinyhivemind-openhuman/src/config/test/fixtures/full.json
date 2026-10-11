@@ -1,0 +1,16 @@
+{
+  "runtime": {
+    "provider": { "kind": "openai", "endpoint": "http://localhost:8000/v1", "credential": { "env": "MODEL_KEY" } },
+    "model": { "name": "fixture", "temperature": 0, "max_tokens": 512 },
+    "session_store": "memory", "memory_engine": "disabled", "autonomy": "supervised", "concurrency": 4,
+    "limits": { "timeout_ms": 10000, "iterations": 8, "budget_usd": 1 },
+    "mcp": [{ "id": "docs", "transport": "http", "endpoint": "http://localhost:8001", "tools": ["Read"], "headers": { "Authorization": { "store": "docs-key" } } }],
+    "skills": [], "include_user_skills": false, "max_agents": 2
+  },
+  "permission_profiles": [{ "id": "reader", "access": "read_only", "sandbox": "read_only", "allow_tools": ["Read"], "deny_tools": ["Write"], "send_operations": ["send"] }],
+  "profiles": [{ "id": "worker", "system_prompt": "Review the task", "context": ["task"], "permission_profile": "reader", "tool_scope": { "named": ["Read"] }, "memory": { "root": "seat:alice" }, "limits": { "iterations": 4 } }],
+  "seats": [{ "id": "alice", "profile": "worker", "overrides": { "model": { "temperature": 0 }, "limits": { "iterations": 2 } } }],
+  "hives": [{ "id": "desk", "name": "Review desk", "memory_root": "hive:desk", "members": [{ "seat": "alice", "role": "reviewer", "context": ["task"] }] }],
+  "workflows": [{ "id": "daily", "schedule": "0 8 * * *", "target": { "hive": "desk" }, "prompt": "Review the task", "enabled": true, "retries": 0, "single_flight": true }],
+  "contexts": { "task": "A deterministic fixture task" }
+}

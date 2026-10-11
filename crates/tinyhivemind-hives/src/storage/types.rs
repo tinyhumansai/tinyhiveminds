@@ -13,6 +13,9 @@ use tinyhivemind_core::driver::{ConductorState, Turn};
 /// reassembles both with [`StoredState::append`].
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct StoredState {
+    /// Explicit per-hive policy and retained membership roles.
+    #[serde(default)]
+    pub hive_settings: BTreeMap<String, crate::HiveSettings>,
     /// CAS revision; each commit advances exactly one.
     pub revision: u64,
     /// Writer epoch: claimed by exactly one live Coordinator at a time. A
@@ -69,6 +72,7 @@ impl StoredState {
     pub(crate) fn without_transcript(&self) -> Self {
         Self {
             revision: self.revision,
+            hive_settings: self.hive_settings.clone(),
             writer_epoch: self.writer_epoch,
             next_sequence: self.next_sequence,
             hives: self.hives.clone(),
@@ -206,9 +210,26 @@ pub struct AgentRecord {
     pub session_id: Option<String>,
     /// Agent waits for explicit host release.
     pub parked: bool,
+    /// Exact completed turn awaiting release; older snapshots have no correlated identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parked_turn: Option<ParkedTurn>,
     /// Release note awaiting the agent's next claimed turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resumption: Option<String>,
+}
+/// Authenticated identity of a completed parked turn.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ParkedTurn {
+    /// Reservation identity distinguishing resumed attempts of the same input.
+    pub turn_id: String,
+    /// Continuing native session which returned the parked outcome.
+    pub session_id: String,
+    /// Captured episode, absent for a direct delivery.
+    pub episode_id: Option<String>,
+    /// Accepted input message identities, in delivery order.
+    pub message_ids: Vec<String>,
+    /// Trusted automation provenance of the parked turn.
+    pub scheduled_job_id: Option<String>,
 }
 /// One direct-agent inbox entry.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -235,6 +256,12 @@ pub enum DeliveryStatus {
 /// One conducted hive episode, frozen membership and wave included.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EpisodeRecord {
+    /// Configuration frozen at acceptance; absent on legacy/unconfigured work.
+    #[serde(default)]
+    pub settings: Option<crate::HiveSettings>,
+    /// Scheduled authority inherited by every descendant assignment.
+    #[serde(default)]
+    pub scheduled_job_id: Option<String>,
     /// Durable episode identity.
     pub episode_id: String,
     /// Membership snapshot for the core driver.

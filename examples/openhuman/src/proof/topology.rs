@@ -140,6 +140,10 @@ pub async fn run(agent_count: usize, hive_count: usize) -> anyhow::Result<()> {
             .ok_or_else(|| anyhow::anyhow!("request lacks its host system prompt"))?;
         let id = format!("agent{agent_index}");
         let original = host_system(&capture);
+        anyhow::ensure!(
+            original.len() == 1,
+            "missing or duplicated host-authored prompt"
+        );
         if let Some(before) = &originals[agent_index] {
             anyhow::ensure!(before == &original, "adapter changed original host prompt");
         } else {
@@ -298,7 +302,7 @@ pub fn host_system(capture: &Value) -> Vec<String> {
         .iter()
         .filter(|m| m["role"] == "system")
         .filter_map(|m| m["content"].as_str())
-        .filter(|s| !s.trim().is_empty() && !s.contains("<openhuman-permanent-tools>"))
+        .filter(|s| s.starts_with("PROMPT_MARKER_"))
         .map(str::to_owned)
         .collect()
 }

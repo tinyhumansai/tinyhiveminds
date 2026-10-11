@@ -10,6 +10,7 @@ consumer builds.
 
 | Phase | What lands | State |
 | --- | --- | --- |
+| OpenHuman configuration | One runtime, reusable Markdown profiles, persistent seats, narrowed hive permissions and native workflows; [accepted contract](docs/specs/openhuman-hive-config.md), [example manifests](examples/openhuman/hives/README.md) | Implemented for review in #113 |
 | P0 | Reshape the TinyBus module template into a plain library workspace | **done** |
 | P1 | Chat identity: `MAIN_THREAD_ID`, `GENERAL_DESK`, `is_general_chat`, `same_conversation` | **done** |
 | P2 | Desk types, then the membership algebra behind `DeskSet<'a>` | **done** |

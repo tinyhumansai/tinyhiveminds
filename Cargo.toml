@@ -55,17 +55,17 @@ tinyhivemind-tools = { path = "crates/tinyhivemind-tools" }
 # host writes the same four lines against its own. `tinytools` is pinned at
 # the commit OpenHuman's own tree vendors, which is what makes the unification
 # exact; `.github/scripts/assert-openhuman-pin.sh` checks all three revs.
-openhuman-embed = { git = "https://github.com/tinyhumansai/openhuman", rev = "9aebda6e5746d6a0030b5239b1e022b4a9ab45ec", default-features = false }
-openhuman = { git = "https://github.com/tinyhumansai/openhuman", rev = "9aebda6e5746d6a0030b5239b1e022b4a9ab45ec", default-features = false }
-tinytools = { git = "https://github.com/tinyhumansai/tinytools", rev = "8e5008c375f9e717e6cbb81fa9532599b98ff0a8" }
-tinytools-agent = { git = "https://github.com/tinyhumansai/tinytools", rev = "8e5008c375f9e717e6cbb81fa9532599b98ff0a8" }
+openhuman-embed = { git = "https://github.com/tinyhumansai/openhuman", rev = "bc59324d2ef7aaac2d7ead81097f1f9c264dc3bd", default-features = false }
+openhuman = { git = "https://github.com/tinyhumansai/openhuman", rev = "bc59324d2ef7aaac2d7ead81097f1f9c264dc3bd", default-features = false }
+tinytools = { git = "https://github.com/tinyhumansai/tinytools", rev = "8a87a26293341c51afa11bccfdbe920def7ca9d6" }
+tinytools-agent = { git = "https://github.com/tinyhumansai/tinytools", rev = "8a87a26293341c51afa11bccfdbe920def7ca9d6" }
 # The memory engine contract and the per-agent lifecycle OpenHuman runs its
 # seats' memory through, for the adapter's `Recall`/`Remember` over the same
 # engine and layout. Git sources pinned at the commit OpenHuman's tree vendors
 # and patched onto that copy below, for the same one-copy reason as the tool
 # crates; `.github/scripts/assert-openhuman-pin.sh` checks the rev.
-tinymemory-api = { git = "https://github.com/tinyhumansai/tinymemory", rev = "581a2bc853467d77f4b76debb3066524a4a46142" }
-tinymemory-tools = { git = "https://github.com/tinyhumansai/tinymemory", rev = "581a2bc853467d77f4b76debb3066524a4a46142" }
+tinymemory-api = { git = "https://github.com/tinyhumansai/tinymemory", rev = "f30b9bbb7319a6a7c2fb1aaa3670281f1dc4a9ba" }
+tinymemory-tools = { git = "https://github.com/tinyhumansai/tinymemory", rev = "f30b9bbb7319a6a7c2fb1aaa3670281f1dc4a9ba" }
 # Derive macros for the crate-wide error type in `crates/tinyhivemind-core/src/error/`.
 # Every dependency entry should carry a comment like this one saying why it is
 # here.
@@ -77,6 +77,10 @@ serde = { version = "1", features = ["derive"] }
 # Pins the exact JSON object shape and required fields of host-facing DTOs in
 # unit tests without adding JSON handling to the runtime dependency graph.
 serde_json = "1"
+# Typed Markdown profile frontmatter in the OpenHuman configuration adapter.
+serde_yaml_ng = "0.10"
+# Fixed-time validation through OpenHuman's native cron schedule parser.
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 # Drives coordinator scheduling, adapter turn deadlines/progress, and async
 # tests. Pure core remains executor-neutral and exposes boxed host futures.
 tokio = { version = "1", features = ["macros", "rt", "sync"] }
@@ -158,7 +162,13 @@ tinymemory-api = { path = "vendor/openhuman/vendor/tinymemory/crates/tinymemory-
 tinymemory-tools = { path = "vendor/openhuman/vendor/tinymemory/crates/tinymemory-tools" }
 tinymemory-integrations = { path = "vendor/openhuman/vendor/tinymemory/crates/tinymemory-integrations" }
 
+# Storage contracts must resolve to the harness copy across git and path users.
+[patch."https://github.com/tinyhumansai/tinystoragedrivers"]
+tinystoragedrivers-core = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinystoragedrivers/crates/tinystoragedrivers-core" }
+tinystoragedrivers-sqlite = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinystoragedrivers/crates/tinystoragedrivers-sqlite" }
+
 [patch."https://github.com/tinyhumansai/tinyinference"]
+tinyinference-decisions = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-decisions" }
 tinyinference-core = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-core" }
 tinyinference-embeddings = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-embeddings" }
 tinyinference-llm = { path = "vendor/openhuman/vendor/tinyagents/vendor/tinyinference/crates/tinyinference-llm" }

@@ -2,6 +2,8 @@
 
 | Path | Responsibility |
 | --- | --- |
+| `deploy/` | One-runtime manifest assembly, captured permissions, approvals and workflows |
+| `config/` | Typed manifests, relative Markdown loading and permission validation |
 | `host/` | Supplied handle registration, continuing sessions, host hooks and management |
 | `tools/` | Stable native specifications, argument validation and bound execution |
 | `memory/` | Hive-shared OpenHuman memory: the hive root, per-seat memory agent ids, seat binding, and core `Recall`/`Remember` |
@@ -11,6 +13,6 @@
 | `error.rs` | Typed adapter errors |
 | `lib.rs` | Public exports and registration example |
 
-Agent construction, MCP connections, skills, the memory engine and original
-prompts belong to the host; `memory/` only decides which root and memory agent
+The host supplies runtime construction ports; `config/` provides the typed
+deployment input for MCP, skills, memory and prompts; `memory/` only decides which root and memory agent
 id each seat is bound to. Durable scheduling and episode state belong to `tinyhivemind-hives`.
