@@ -98,3 +98,6 @@ construction, single-runtime dependency unification, and recovery.
 
 The [configuration module](src/config/README.md) parses reusable manifests and
 Markdown profiles before runtime construction.
+
+For a model-backed package registration check, see the
+[live language example](examples/README.md).

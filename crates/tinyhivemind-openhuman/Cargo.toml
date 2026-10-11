@@ -11,6 +11,10 @@ publish = false
 # The adapter names the host's exact OpenHuman Agent and native Tool types.
 # Git sources are patched by the consuming workspace to its single checkout.
 
+[[example]]
+name = "live_language"
+required-features = ["offline"]
+
 [features]
 # Loopback backend fixtures for standalone deterministic host examples.
 offline = ["dep:wiremock"]
