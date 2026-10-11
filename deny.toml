@@ -30,6 +30,13 @@ allow = [
 ]
 confidence-threshold = 0.9
 
+# The pinned OpenHuman embed stack reaches this OSI-approved, permissive license
+# through jsonschema; keep the exception scoped to this exact transitive crate.
+[[licenses.exceptions]]
+name = "borrow-or-share"
+version = "0.2.4"
+allow = ["MIT-0"]
+
 [bans]
 # Duplicate versions bloat build times; review them rather than ignoring them.
 multiple-versions = "warn"
@@ -63,6 +70,11 @@ skip = [
     # manifest-level wildcard finding, and its dependency tree stays subject to
     # every other ban.
     { name = "tinyjuice", version = "0.6.0" },
+    # tinyflows is vendored inside the pinned OpenHuman submodule. Its SQLite
+    # crate uses a tagged git dependency but omits the version cargo-deny
+    # requires for public packages; the lockfile and OpenHuman pin guard fix
+    # the resolved source. Skip this crate's manifest wildcard finding only.
+    { name = "tinyflows-sqlite", version = "0.1.0" },
 ]
 # Crates that must never enter the dependency graph.
 deny = []

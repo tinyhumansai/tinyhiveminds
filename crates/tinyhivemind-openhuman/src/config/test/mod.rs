@@ -2,20 +2,20 @@
 use super::*;
 
 fn minimal() -> HiveConfig {
-    HiveConfig::from_json(r#"{"profiles":[{"id":"worker"}],"seats":[{"id":"alice","profile":"worker"}],"hives":[{"id":"desk","members":[{"seat":"alice","role":"reviewer"}]}]}"#).unwrap_or_else(|error| unreachable!("valid fixture: {error}"))
+    HiveConfig::from_json(
+        r#"{"profiles":[{"id":"worker"}],"seats":[{"id":"alice","profile":"worker"}],"hives":[{"id":"desk","members":[{"seat":"alice","role":"reviewer"}]}]}"#,
+    )
+    .unwrap_or_else(|error| unreachable!("valid fixture: {error}"))
 }
 
 #[test]
-fn canonical_manifest_round_trips_and_validates() {
+fn canonical_manifest_round_trips_and_validates() -> anyhow::Result<()> {
     let config = minimal();
-    let encoded = serde_json::to_value(&config)
-        .unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
+    let encoded = serde_json::to_value(&config)?;
     assert_eq!(encoded["runtime"]["concurrency"], 4);
     assert_eq!(encoded["hives"][0]["members"][0]["role"], "reviewer");
-    HiveConfig::from_value(encoded)
-        .unwrap_or_else(|error| unreachable!("valid fixture: {error}"))
-        .validate()
-        .unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
+    HiveConfig::from_value(encoded)?.validate()?;
+    Ok(())
 }
 
 #[test]
@@ -55,43 +55,30 @@ fn denies_empty_roles_and_width_above_runtime_cap() {
 }
 
 #[test]
-fn policy_serde_preserves_defaults() {
+fn policy_serde_preserves_defaults() -> anyhow::Result<()> {
     use tinyhivemind_core::{driver::ConductPolicy, hive::DivisionPolicy};
-    let conduct: ConductPolicy =
-        serde_json::from_str("{}").unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
+    let conduct: ConductPolicy = serde_json::from_str("{}")?;
     assert_eq!(
-        serde_json::to_value(conduct)
-            .unwrap_or_else(|error| unreachable!("valid fixture: {error}")),
+        serde_json::to_value(conduct)?,
         serde_json::json!({"child_turn_wall":6,"turn_wall":60})
     );
-    let division: DivisionPolicy =
-        serde_json::from_str("{}").unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
+    let division: DivisionPolicy = serde_json::from_str("{}")?;
     assert_eq!(division, DivisionPolicy::default());
-    let coordinator: tinyhivemind_hives::CoordinatorOptions =
-        serde_json::from_str("{}").unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
+    let coordinator: tinyhivemind_hives::CoordinatorOptions = serde_json::from_str("{}")?;
     assert_eq!(coordinator.round_width, 1);
-    let retention: tinyhivemind_hives::RetentionPolicy =
-        serde_json::from_str("{}").unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
+    let retention: tinyhivemind_hives::RetentionPolicy = serde_json::from_str("{}")?;
     assert_eq!(retention, tinyhivemind_hives::RetentionPolicy::default());
+    Ok(())
 }
 mod directory;
 mod validation;
 
 #[test]
-fn full_fixture_pins_every_configuration_section_and_round_trips() {
-    let config = HiveConfig::from_json(include_str!("fixtures/full.json"))
-        .unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
-    config
-        .clone()
-        .validate()
-        .unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
-    let first =
-        serde_json::to_value(config).unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
-    let second = serde_json::to_value(
-        HiveConfig::from_value(first.clone())
-            .unwrap_or_else(|error| unreachable!("valid fixture: {error}")),
-    )
-    .unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
+fn full_fixture_pins_every_configuration_section_and_round_trips() -> anyhow::Result<()> {
+    let config = HiveConfig::from_json(include_str!("fixtures/full.json"))?;
+    config.clone().validate()?;
+    let first = serde_json::to_value(config)?;
+    let second = serde_json::to_value(HiveConfig::from_value(first.clone())?)?;
     assert_eq!(first, second);
     assert_eq!(
         first["runtime"]["provider"]["credential"],
@@ -110,4 +97,5 @@ fn full_fixture_pins_every_configuration_section_and_round_trips() {
         serde_json::json!({"hive":"desk"})
     );
     assert_eq!(first["hives"][0]["episode"]["round_width"], 1);
+    Ok(())
 }

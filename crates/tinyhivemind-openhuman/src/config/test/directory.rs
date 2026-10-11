@@ -2,69 +2,63 @@
 use super::*;
 use std::fs;
 #[test]
-fn directory_loads_body_context_and_yaml_with_relative_paths() {
-    let dir = tempfile::tempdir().unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
-    fs::create_dir(dir.path().join("profiles"))
-        .unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
-    fs::create_dir(dir.path().join("context"))
-        .unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
-    fs::write(dir.path().join("hive.json"), "{}")
-        .unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
-    fs::write(dir.path().join("profiles/reader.md"), "---\ncontext: [task]\nmodel:\n  temperature: 0\n---\nReview carefully.\n---\nOrdinary separator.").unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
+fn directory_loads_body_context_and_yaml_with_relative_paths() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    fs::create_dir(dir.path().join("profiles"))?;
+    fs::create_dir(dir.path().join("context"))?;
+    fs::write(dir.path().join("hive.json"), "{}")?;
+    fs::write(
+        dir.path().join("profiles/reader.md"),
+        "---\ncontext: [task]\nmodel:\n  temperature: 0\n---\nReview carefully.\n---\nOrdinary separator.",
+    )?;
     fs::write(
         dir.path().join("context/task.md"),
         "---\ntitle: Task\n---\nTask details.",
-    )
-    .unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
-    let c = HiveConfig::load_dir(dir.path())
-        .unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
+    )?;
+    let c = HiveConfig::load_dir(dir.path())?;
     assert_eq!(c.profiles[0].id, "reader");
     assert!(c.profiles[0].system_prompt.contains("\n---\n"));
     assert_eq!(c.contexts["task"], "Task details.");
-    c.validate()
-        .unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
+    c.validate()?;
+    Ok(())
 }
 #[test]
-fn missing_files_malformed_frontmatter_and_duplicate_profiles_are_typed() {
-    let dir = tempfile::tempdir().unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
+fn missing_files_malformed_frontmatter_and_duplicate_profiles_are_typed() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
     assert!(matches!(
         HiveConfig::load_dir(dir.path()),
         Err(ConfigError::Io { .. })
     ));
-    fs::write(dir.path().join("hive.json"), "{}")
-        .unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
-    fs::create_dir(dir.path().join("profiles"))
-        .unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
+    fs::write(dir.path().join("hive.json"), "{}")?;
+    fs::create_dir(dir.path().join("profiles"))?;
     for body in ["---\nid: a", "---\ninvalid: [\n---\nbody"] {
-        fs::write(dir.path().join("profiles/a.md"), body)
-            .unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
+        fs::write(dir.path().join("profiles/a.md"), body)?;
         assert!(matches!(
             HiveConfig::load_dir(dir.path()),
             Err(ConfigError::Frontmatter(_))
         ));
     }
-    fs::write(dir.path().join("profiles/a.md"), "body")
-        .unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
-    fs::write(dir.path().join("hive.json"), r#"{"profiles":[{"id":"a"}]}"#)
-        .unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
+    fs::write(dir.path().join("profiles/a.md"), "body")?;
+    fs::write(dir.path().join("hive.json"), r#"{"profiles":[{"id":"a"}]}"#)?;
     assert!(matches!(
         HiveConfig::load_dir(dir.path()),
         Err(ConfigError::DuplicateId { .. })
     ));
+    Ok(())
 }
 #[test]
-fn credentials_have_exact_reference_wire_forms() {
+fn credentials_have_exact_reference_wire_forms() -> anyhow::Result<()> {
     assert_eq!(
-        serde_json::to_value(SecretRef::Env("KEY".into()))
-            .unwrap_or_else(|error| unreachable!("valid fixture: {error}")),
+        serde_json::to_value(SecretRef::Env("KEY".into()))?,
         serde_json::json!({"env":"KEY"})
     );
     assert_eq!(
-        serde_json::to_value(SecretRef::Store("key".into()))
-            .unwrap_or_else(|error| unreachable!("valid fixture: {error}")),
+        serde_json::to_value(SecretRef::Store("key".into()))?,
         serde_json::json!({"store":"key"})
     );
-    HiveConfig::from_json(r#"{"runtime":{"provider":{"credential":{"env":"KEY"}},"mcp":[{"id":"a","transport":"http","endpoint":"http://localhost","headers":{"Authorization":{"store":"token"}}}]}}"#).unwrap_or_else(|error| unreachable!("valid fixture: {error}"));
+    HiveConfig::from_json(
+        r#"{"runtime":{"provider":{"credential":{"env":"KEY"}},"mcp":[{"id":"a","transport":"http","endpoint":"http://localhost","headers":{"Authorization":{"store":"token"}}}]}}"#,
+    )?;
     assert!(matches!(
         HiveConfig::from_json(r#"{"runtime":{"mcp":[{"env":{"SECRET":"literal"}}]}}"#),
         Err(ConfigError::InlineSecret { .. })
@@ -73,6 +67,7 @@ fn credentials_have_exact_reference_wire_forms() {
         HiveConfig::from_json(r#"{"seats":[{"overrides":{"api_key":"literal"}}]}"#),
         Err(ConfigError::InlineSecret { .. })
     ));
+    Ok(())
 }
 
 #[test]
@@ -90,16 +85,16 @@ fn provider_urls_cannot_smuggle_literal_credentials() {
 }
 
 #[test]
-fn native_policy_unknown_fields_are_rejected_only_at_manifest_boundary() {
+fn native_policy_unknown_fields_are_rejected_only_at_manifest_boundary() -> anyhow::Result<()> {
     for policy in ["episode", "routing", "conduct", "division", "coordinator"] {
-        let mut value =
-            serde_json::to_value(minimal()).unwrap_or_else(|e| unreachable!("valid fixture: {e}"));
+        let mut value = serde_json::to_value(minimal())?;
         value["hives"][0][policy]["unknown_setting"] = serde_json::json!(true);
         assert!(matches!(
             HiveConfig::from_value(value),
             Err(ConfigError::Json)
         ));
     }
+    Ok(())
 }
 #[test]
 fn empty_secret_reference_and_mutated_credential_url_are_rejected() {
@@ -116,9 +111,8 @@ fn empty_secret_reference_and_mutated_credential_url_are_rejected() {
 }
 
 #[test]
-fn unknown_tool_rules_key_and_approval_fields_cannot_bypass_strict_parsing() {
-    let base =
-        serde_json::to_value(minimal()).unwrap_or_else(|e| unreachable!("valid fixture: {e}"));
+fn unknown_tool_rules_key_and_approval_fields_cannot_bypass_strict_parsing() -> anyhow::Result<()> {
+    let base = serde_json::to_value(minimal())?;
     for policy in ["episode", "routing"] {
         let mut value = base.clone();
         value["hives"][0][policy]["tool_rules"] = serde_json::json!({});
@@ -142,6 +136,7 @@ fn unknown_tool_rules_key_and_approval_fields_cannot_bypass_strict_parsing() {
         HiveConfig::from_value(value),
         Err(ConfigError::Json)
     ));
+    Ok(())
 }
 
 #[test]
